@@ -6,28 +6,26 @@
 'use strict';
 
 const Gatherer = require('../gatherer');
-const pageFunctions = require('../../../lib/page-functions.js');
+const DOMHelpers = require('../../../lib/dom-helpers.js');
 
 class AnchorsWithNoRelNoopener extends Gatherer {
   /**
-   * @param {LH.Gatherer.PassContext} passContext
-   * @return {Promise<LH.Artifacts['AnchorsWithNoRelNoopener']>}
+   * @param {!Object} options
+   * @return {!Promise<!Array<{href: string, rel: string, target: string}>>}
    */
-  afterPass(passContext) {
+  afterPass(options) {
     const expression = `(function() {
-      ${pageFunctions.getOuterHTMLSnippetString};
-      ${pageFunctions.getElementsInDocumentString}; // define function on page
-      const selector = 'a[target="_blank"]:not([rel~="noopener"]):not([rel~="noreferrer"])';
+      ${DOMHelpers.getElementsInDocumentFnString}; // define function on page
+      const selector = 'a[target="_blank"]:not([rel~="noopener"])';
       const elements = getElementsInDocument(selector);
       return elements.map(node => ({
         href: node.href,
         rel: node.getAttribute('rel'),
-        target: node.getAttribute('target'),
-        outerHTML: getOuterHTMLSnippet(node),
+        target: node.getAttribute('target')
       }));
     })()`;
 
-    return passContext.driver.evaluateAsync(expression);
+    return options.driver.evaluateAsync(expression);
   }
 }
 

@@ -9,25 +9,18 @@
 
 const log = require('lighthouse-logger');
 
-/** @type {Array<{type: 'log'|'warn'|'error', args: any[], prefix: string}>} */
-let _logs = [];
-
 class ConsoleQuieter {
-  /** @param {{prefix: string}} opts */
   static mute(opts) {
-    _logs = _logs || [];
+    ConsoleQuieter._logs = ConsoleQuieter._logs || [];
 
-    /** @param {any[]} args */
     console.log = function(...args) {
-      _logs.push({type: 'log', args, prefix: opts.prefix});
+      ConsoleQuieter._logs.push({type: 'log', args, prefix: opts.prefix});
     };
-    /** @param {any[]} args */
     console.warn = function(...args) {
-      _logs.push({type: 'warn', args, prefix: opts.prefix});
+      ConsoleQuieter._logs.push({type: 'warn', args, prefix: opts.prefix});
     };
-    /** @param {any[]} args */
     console.error = function(...args) {
-      _logs.push({type: 'error', args, prefix: opts.prefix});
+      ConsoleQuieter._logs.push({type: 'error', args, prefix: opts.prefix});
     };
   }
 
@@ -36,10 +29,10 @@ class ConsoleQuieter {
     console.warn = ConsoleQuieter._consolewarn;
     console.error = ConsoleQuieter._consoleerror;
 
-    _logs.forEach(entry => {
+    ConsoleQuieter._logs.forEach(entry => {
       log.verbose(`${entry.prefix}-${entry.type}`, ...entry.args);
     });
-    _logs = [];
+    ConsoleQuieter._logs = [];
   }
 }
 

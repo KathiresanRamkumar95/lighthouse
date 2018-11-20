@@ -15,30 +15,48 @@ const Gatherer = require('./gatherer');
 class HTTPRedirect extends Gatherer {
   constructor() {
     super();
-    this._preRedirectURL = '';
+    this._preRedirectURL = undefined;
   }
 
-  /**
-   * @param {LH.Gatherer.PassContext} passContext
-   */
-  beforePass(passContext) {
-    this._preRedirectURL = passContext.url;
-    passContext.url = this._preRedirectURL.replace(/^https/, 'http');
+  beforePass(options) {
+    this._preRedirectURL = options.url;
+    options.url = this._preRedirectURL.replace(/^https/, 'http');
   }
 
-  /**
-   * @param {LH.Gatherer.PassContext} passContext
-   * @return {Promise<LH.Artifacts['HTTPRedirect']>}
-   */
-  async afterPass(passContext) {
+  afterPass(options) {
     // Reset the options.
-    passContext.url = this._preRedirectURL;
+    options.url = this._preRedirectURL;
 
-    const expression = `new URL(window.location).protocol === 'https:'`;
-    const isHttps = await passContext.driver.evaluateAsync(expression, {useIsolation: true});
-    return {
-      value: isHttps,
-    };
+    // Allow override for faster testing.
+    const timeout = options._testTimeout || 10000;
+
+    const securityPromise = options.driver.getSecurityState()
+      .then(state => {
+        return {
+          value: state.schemeIsCryptographic,
+        };
+      });
+
+    let noSecurityChangesTimeout;
+    const timeoutPromise = new Promise((resolve, reject) => {
+      // Set up a timeout for ten seconds in case we don't get any
+      // security events at all. If that happens, bail.
+      noSecurityChangesTimeout = setTimeout(_ => {
+        reject(new Error('Timed out waiting for HTTP redirection.'));
+      }, timeout);
+    });
+
+    return Promise.race([
+      securityPromise,
+      timeoutPromise,
+    ]).then(result => {
+      // Clear timeout. No effect if it won, no need to wait if it lost.
+      clearTimeout(noSecurityChangesTimeout);
+      return result;
+    }).catch(err => {
+      clearTimeout(noSecurityChangesTimeout);
+      throw err;
+    });
   }
 }
 

@@ -5,12 +5,12 @@
  */
 'use strict';
 
-const BaseNode = require('./base-node');
+const Node = require('./node');
 
-class CPUNode extends BaseNode {
+class CPUNode extends Node {
   /**
-   * @param {LH.TraceEvent} parentEvent
-   * @param {LH.TraceEvent[]=} childEvents
+   * @param {!TraceEvent} parentEvent
+   * @param {!Array<TraceEvent>=} childEvents
    */
   constructor(parentEvent, childEvents = []) {
     const nodeId = `${parentEvent.tid}.${parentEvent.ts}`;
@@ -20,8 +20,11 @@ class CPUNode extends BaseNode {
     this._childEvents = childEvents;
   }
 
+  /**
+   * @return {string}
+   */
   get type() {
-    return BaseNode.TYPES.CPU;
+    return Node.TYPES.CPU;
   }
 
   /**
@@ -39,14 +42,14 @@ class CPUNode extends BaseNode {
   }
 
   /**
-   * @return {LH.TraceEvent}
+   * @return {!TraceEvent}
    */
   get event() {
     return this._event;
   }
 
   /**
-   * @return {LH.TraceEvent[]}
+   * @return {!TraceEvent}
    */
   get childEvents() {
     return this._childEvents;
@@ -62,19 +65,19 @@ class CPUNode extends BaseNode {
 
   /**
    * Returns true if this node contains the EvaluateScript task for a URL in the given set.
-   * @param {Set<string>} urls
+   * @param {!Set<string>} urls
    * @return {boolean}
    */
   isEvaluateScriptFor(urls) {
     return this._childEvents.some(evt => {
       return evt.name === 'EvaluateScript' &&
-        !!evt.args.data && !!evt.args.data.url &&
+        evt.args.data &&
         urls.has(evt.args.data.url);
     });
   }
 
   /**
-   * @return {CPUNode}
+   * @return {!CPUNode}
    */
   cloneWithoutRelationships() {
     return new CPUNode(this._event, this._childEvents);

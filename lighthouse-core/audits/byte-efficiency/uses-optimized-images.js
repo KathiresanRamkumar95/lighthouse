@@ -11,90 +11,85 @@
 
 const ByteEfficiencyAudit = require('./byte-efficiency-audit');
 const URL = require('../../lib/url-shim');
-const i18n = require('../../lib/i18n/i18n.js');
-
-const UIStrings = {
-  /** Imperative title of a Lighthouse audit that tells the user to encode images with optimization (better compression). This is displayed in a list of audit titles that Lighthouse generates. */
-  title: 'Efficiently encode images',
-  /** Description of a Lighthouse audit that tells the user *why* they need to efficiently encode images. This is displayed after a user expands the section to see more. No character length limits. 'Learn More' becomes link text to additional documentation. */
-  description: 'Optimized images load faster and consume less cellular data. ' +
-  '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/optimize-images).',
-};
-
-const str_ = i18n.createMessageInstanceIdFn(__filename, UIStrings);
 
 const IGNORE_THRESHOLD_IN_BYTES = 4096;
 
 class UsesOptimizedImages extends ByteEfficiencyAudit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'uses-optimized-images',
-      title: str_(UIStrings.title),
-      description: str_(UIStrings.description),
-      scoreDisplayMode: ByteEfficiencyAudit.SCORING_MODES.NUMERIC,
-      requiredArtifacts: ['OptimizedImages', 'devtoolsLogs', 'traces'],
+      name: 'uses-optimized-images',
+      description: 'Optimize images',
+      informative: true,
+      helpText: 'Optimized images load faster and consume less cellular data. ' +
+        '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/optimize-images).',
+      requiredArtifacts: ['OptimizedImages', 'devtoolsLogs'],
     };
   }
 
   /**
-   * @param {{originalSize: number, jpegSize: number}} image
+   * @param {{originalSize: number, webpSize: number, jpegSize: number}} image
+   * @param {string} type
    * @return {{bytes: number, percent: number}}
    */
-  static computeSavings(image) {
-    const bytes = image.originalSize - image.jpegSize;
+  static computeSavings(image, type) {
+    const bytes = image.originalSize - image[type + 'Size'];
     const percent = 100 * bytes / image.originalSize;
     return {bytes, percent};
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @return {ByteEfficiencyAudit.ByteEfficiencyProduct}
+   * @param {!Artifacts} artifacts
+   * @return {!Audit.HeadingsResult}
    */
   static audit_(artifacts) {
     const images = artifacts.OptimizedImages;
 
-    /** @type {Array<{url: string, fromProtocol: boolean, isCrossOrigin: boolean, totalBytes: number, wastedBytes: number}>} */
-    const items = [];
-    const warnings = [];
-    for (const image of images) {
+    const failedImages = [];
+    const results = [];
+    images.forEach(image => {
       if (image.failed) {
-        warnings.push(`Unable to decode ${URL.getURLDisplayName(image.url)}`);
-        continue;
+        failedImages.push(image);
+        return;
       } else if (/(jpeg|bmp)/.test(image.mimeType) === false ||
                  image.originalSize < image.jpegSize + IGNORE_THRESHOLD_IN_BYTES) {
-        continue;
+        return;
       }
 
       const url = URL.elideDataURI(image.url);
-      const jpegSavings = UsesOptimizedImages.computeSavings(image);
+      const jpegSavings = UsesOptimizedImages.computeSavings(image, 'jpeg');
 
-      items.push({
+      results.push({
         url,
         fromProtocol: image.fromProtocol,
         isCrossOrigin: !image.isSameOrigin,
+        preview: {url: image.url, mimeType: image.mimeType, type: 'thumbnail'},
         totalBytes: image.originalSize,
         wastedBytes: jpegSavings.bytes,
       });
+    });
+
+    let debugString;
+    if (failedImages.length) {
+      const urls = failedImages.map(image => URL.getURLDisplayName(image.url));
+      debugString = `Lighthouse was unable to decode some of your images: ${urls.join(', ')}`;
     }
 
-    /** @type {LH.Result.Audit.OpportunityDetails['headings']} */
     const headings = [
-      {key: 'url', valueType: 'thumbnail', label: ''},
-      {key: 'url', valueType: 'url', label: str_(i18n.UIStrings.columnURL)},
-      {key: 'totalBytes', valueType: 'bytes', label: str_(i18n.UIStrings.columnSize)},
-      {key: 'wastedBytes', valueType: 'bytes', label: str_(i18n.UIStrings.columnWastedBytes)},
+      {key: 'preview', itemType: 'thumbnail', text: ''},
+      {key: 'url', itemType: 'url', text: 'URL'},
+      {key: 'totalKb', itemType: 'text', text: 'Original'},
+      {key: 'potentialSavings', itemType: 'text', text: 'Potential Savings'},
     ];
 
     return {
-      warnings,
-      items,
+      debugString,
+      results,
       headings,
     };
   }
 }
 
 module.exports = UsesOptimizedImages;
-module.exports.UIStrings = UIStrings;

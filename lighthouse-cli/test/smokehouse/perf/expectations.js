@@ -6,47 +6,39 @@
 'use strict';
 
 /**
- * Expected Lighthouse audit values for --preset=perf tests
+ * Expected Lighthouse audit values for --perf tests
  */
 module.exports = [
   {
-    requestedUrl: 'http://localhost:10200/preload.html',
-    finalUrl: 'http://localhost:10200/preload.html',
+    initialUrl: 'http://localhost:10200/preload.html',
+    url: 'http://localhost:10200/preload.html',
     audits: {
-      'speed-index': {
-        score: '>=0.80',
+      'speed-index-metric': {
+        score: '>=80',
+        extendedInfo: {
+          value: {
+            timings: {},
+            timestamps: {},
+            frames: [],
+          },
+        },
       },
       'first-meaningful-paint': {
-        score: '>=0.90',
+        score: '>=90',
       },
-      'first-cpu-idle': {
-        score: '>=0.90',
+      'first-interactive': {
+        score: '>=90',
       },
-      'interactive': {
-        score: '>=0.90',
+      'consistently-interactive': {
+        score: '>=90',
       },
       'time-to-first-byte': {
         // Can be flaky, so test float rawValue instead of boolean score
         rawValue: '<1000',
       },
-      'network-requests': {
-        details: {
-          items: {
-            length: '>5',
-          },
-        },
-      },
       'uses-rel-preload': {
-        score: '<1',
+        score: '<100',
         rawValue: '>500',
-        details: {
-          items: {
-            length: 1,
-          },
-        },
-      },
-      'uses-rel-preconnect': {
-        score: '<1',
         details: {
           items: {
             length: 1,
@@ -56,15 +48,15 @@ module.exports = [
     },
   },
   {
-    requestedUrl: 'http://localhost:10200/perf/fonts.html',
-    finalUrl: 'http://localhost:10200/perf/fonts.html',
+    initialUrl: 'http://localhost:10200/perf/fonts.html',
+    url: 'http://localhost:10200/perf/fonts.html',
     audits: {
       'font-display': {
-        score: 0,
+        score: false,
         rawValue: false,
         details: {
           items: {
-            length: 2,
+            length: 1,
           },
         },
       },

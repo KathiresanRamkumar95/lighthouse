@@ -9,9 +9,6 @@ const Gatherer = require('./gatherer');
 
 /* global window */
 
-/**
- * @return {Promise<LH.Artifacts.ViewportDimensions>}
- */
 /* istanbul ignore next */
 function getViewportDimensions() {
   // window.innerWidth to get the scrollable size of the window (irrespective of zoom)
@@ -28,23 +25,23 @@ function getViewportDimensions() {
 
 class ViewportDimensions extends Gatherer {
   /**
-   * @param {LH.Gatherer.PassContext} passContext
-   * @return {Promise<LH.Artifacts.ViewportDimensions>}
+   * @param {!Object} options
+   * @return {!Promise<{innerWidth: number, outerWidth: number, devicePixelRatio: number}>}
    */
-  async afterPass(passContext) {
-    const driver = passContext.driver;
+  afterPass(options) {
+    const driver = options.driver;
 
-    /** @type {LH.Artifacts.ViewportDimensions} */
-    const dimensions = await driver.evaluateAsync(`(${getViewportDimensions.toString()}())`,
-      {useIsolation: true});
+    return driver.evaluateAsync(`(${getViewportDimensions.toString()}())`, {useIsolation: true})
 
-    const allNumeric = Object.values(dimensions).every(Number.isFinite);
-    if (!allNumeric) {
-      const results = JSON.stringify(dimensions);
-      throw new Error(`ViewportDimensions results were not numeric: ${results}`);
-    }
+    .then(dimensions => {
+      const allNumeric = Object.keys(dimensions).every(key => Number.isFinite(dimensions[key]));
+      if (!allNumeric) {
+        const results = JSON.stringify(dimensions);
+        throw new Error(`ViewportDimensions results were not numeric: ${results}`);
+      }
 
-    return dimensions;
+      return dimensions;
+    });
   }
 }
 

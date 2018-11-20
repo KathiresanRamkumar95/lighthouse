@@ -5,22 +5,17 @@
  */
 'use strict';
 
-/* global window, document, Node, getOuterHTMLSnippet */
+/* global window, document, Node */
 
 const Gatherer = require('./gatherer');
 const fs = require('fs');
 const axeLibSource = fs.readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8');
-const pageFunctions = require('../../lib/page-functions');
 
-/**
- * This is run in the page, not Lighthouse itself.
- * axe.run returns a promise which fulfills with a results object
- * containing any violations.
- * @return {Promise<LH.Artifacts.Accessibility>}
- */
+// This is run in the page, not Lighthouse itself.
+// axe.run returns a promise which fulfills with a results object
+// containing any violations.
 /* istanbul ignore next */
 function runA11yChecks() {
-  // @ts-ignore axe defined by axeLibSource
   return window.axe.run(document, {
     elementRef: true,
     runOnly: {
@@ -33,20 +28,16 @@ function runA11yChecks() {
     resultTypes: ['violations', 'inapplicable'],
     rules: {
       'tabindex': {enabled: true},
-      'table-fake-caption': {enabled: false},
-      'td-has-header': {enabled: false},
-      'marquee': {enabled: false},
+      'table-fake-caption': {enabled: true},
+      'td-has-header': {enabled: true},
       'area-alt': {enabled: false},
       'blink': {enabled: false},
       'server-side-image-map': {enabled: false},
     },
-    // @ts-ignore
   }).then(axeResult => {
     // Augment the node objects with outerHTML snippet & custom path string
-    // @ts-ignore
     axeResult.violations.forEach(v => v.nodes.forEach(node => {
       node.path = getNodePath(node.element);
-      // @ts-ignore - getOuterHTMLSnippet put into scope via stringification
       node.snippet = getOuterHTMLSnippet(node.element);
       // avoid circular JSON concerns
       node.element = node.any = node.all = node.none = undefined;
@@ -57,21 +48,15 @@ function runA11yChecks() {
     return axeResult;
   });
 
-  /**
-   * Adapted from DevTools' SDK.DOMNode.prototype.path
-   *   https://github.com/ChromeDevTools/devtools-frontend/blob/7a2e162ddefd/front_end/sdk/DOMModel.js#L530-L552
-   * TODO: Doesn't handle frames or shadow roots...
-   * @param {Node} node
-   */
+  // Adapted from DevTools' SDK.DOMNode.prototype.path
+  //   https://github.com/ChromeDevTools/devtools-frontend/blob/7a2e162ddefd/front_end/sdk/DOMModel.js#L530-L552
+  // TODO: Doesn't handle frames or shadow roots...
   function getNodePath(node) {
-    /** @param {Node} node */
     function getNodeIndex(node) {
       let index = 0;
-      let prevNode;
-      while (prevNode = node.previousSibling) {
-        node = prevNode;
+      while (node = node.previousSibling) {
         // skip empty text nodes
-        if (node.nodeType === Node.TEXT_NODE && node.textContent &&
+        if (node.nodeType === Node.TEXT_NODE &&
           node.textContent.trim().length === 0) continue;
         index++;
       }
@@ -87,17 +72,27 @@ function runA11yChecks() {
     path.reverse();
     return path.join(',');
   }
+
+  /**
+   * Gets the opening tag text of the given node.
+   * @param {!Node}
+   * @return {string}
+   */
+  function getOuterHTMLSnippet(node) {
+    const reOpeningTag = /^.*?>/;
+    const match = node.outerHTML.match(reOpeningTag);
+    return match && match[0];
+  }
 }
 
 class Accessibility extends Gatherer {
   /**
-   * @param {LH.Gatherer.PassContext} passContext
-   * @return {Promise<LH.Artifacts.Accessibility>}
+   * @param {!Object} options
+   * @return {!Promise<{violations: !Array}>}
    */
-  afterPass(passContext) {
-    const driver = passContext.driver;
+  afterPass(options) {
+    const driver = options.driver;
     const expression = `(function () {
-      ${pageFunctions.getOuterHTMLSnippetString};
       ${axeLibSource};
       return (${runA11yChecks.toString()}());
     })()`;

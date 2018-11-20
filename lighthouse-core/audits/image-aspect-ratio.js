@@ -14,36 +14,31 @@
 const Audit = require('./audit');
 
 const URL = require('../lib/url-shim');
-const THRESHOLD_PX = 2;
-
-/** @typedef {Required<LH.Artifacts.SingleImageUsage>} WellDefinedImage */
+const THRESHOLD = 0.05;
 
 class ImageAspectRatio extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'image-aspect-ratio',
-      title: 'Displays images with correct aspect ratio',
-      failureTitle: 'Displays images with incorrect aspect ratio',
-      description: 'Image display dimensions should match natural aspect ratio. ' +
-        '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/aspect-ratio).',
+      name: 'image-aspect-ratio',
+      description: 'Displays images with correct aspect ratio',
+      failureDescription: 'Displays images with incorrect aspect ratio',
+      helpText: 'Image display dimensions should match natural aspect ratio.',
       requiredArtifacts: ['ImageUsage'],
     };
   }
 
   /**
-   * @param {WellDefinedImage} image
-   * @return {Error|{url: string, displayedAspectRatio: string, actualAspectRatio: string, doRatiosMatch: boolean}}
+   * @param {!Object} image
+   * @return {?Object}
    */
   static computeAspectRatios(image) {
     const url = URL.elideDataURI(image.src);
     const actualAspectRatio = image.naturalWidth / image.naturalHeight;
     const displayedAspectRatio = image.width / image.height;
-
-    const targetDisplayHeight = image.width / actualAspectRatio;
-    const doRatiosMatch = Math.abs(targetDisplayHeight - image.height) < THRESHOLD_PX;
+    const doRatiosMatch = Math.abs(actualAspectRatio - displayedAspectRatio) < THRESHOLD;
 
     if (!Number.isFinite(actualAspectRatio) ||
       !Number.isFinite(displayedAspectRatio)) {
@@ -52,6 +47,11 @@ class ImageAspectRatio extends Audit {
 
     return {
       url,
+      preview: {
+        type: 'thumbnail',
+        url: image.networkRecord.url,
+        mimeType: image.networkRecord.mimeType,
+      },
       displayedAspectRatio: `${image.width} x ${image.height}
         (${displayedAspectRatio.toFixed(2)})`,
       actualAspectRatio: `${image.naturalWidth} x ${image.naturalHeight}
@@ -61,15 +61,13 @@ class ImageAspectRatio extends Audit {
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @return {LH.Audit.Product}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
   static audit(artifacts) {
     const images = artifacts.ImageUsage;
 
-    /** @type {string[]} */
-    const warnings = [];
-    /** @type {Array<{url: string, displayedAspectRatio: string, actualAspectRatio: string, doRatiosMatch: boolean}>} */
+    let debugString;
     const results = [];
     images.filter(image => {
       // - filter out images that don't have following properties:
@@ -77,16 +75,13 @@ class ImageAspectRatio extends Audit {
       // - filter all svgs as they have no natural dimensions to audit
       return image.networkRecord &&
         image.networkRecord.mimeType !== 'image/svg+xml' &&
-        image.naturalHeight > 5 &&
-        image.naturalWidth > 5 &&
         image.width &&
         image.height &&
         !image.usesObjectFit;
     }).forEach(image => {
-      const wellDefinedImage = /** @type {WellDefinedImage} */ (image);
-      const processed = ImageAspectRatio.computeAspectRatios(wellDefinedImage);
+      const processed = ImageAspectRatio.computeAspectRatios(image);
       if (processed instanceof Error) {
-        warnings.push(processed.message);
+        debugString = processed.message;
         return;
       }
 
@@ -94,7 +89,7 @@ class ImageAspectRatio extends Audit {
     });
 
     const headings = [
-      {key: 'url', itemType: 'thumbnail', text: ''},
+      {key: 'preview', itemType: 'thumbnail', text: ''},
       {key: 'url', itemType: 'url', text: 'URL'},
       {key: 'displayedAspectRatio', itemType: 'text', text: 'Aspect Ratio (Displayed)'},
       {key: 'actualAspectRatio', itemType: 'text', text: 'Aspect Ratio (Actual)'},
@@ -102,7 +97,7 @@ class ImageAspectRatio extends Audit {
 
     return {
       rawValue: results.length === 0,
-      warnings,
+      debugString,
       details: Audit.makeTableDetails(headings, results),
     };
   }

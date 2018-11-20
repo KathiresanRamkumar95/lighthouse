@@ -13,65 +13,50 @@ const Audit = require('./audit');
 
 class MultiCheckAudit extends Audit {
   /**
-   * @param {LH.Artifacts} artifacts
-   * @param {LH.Audit.Context} context
-   * @return {Promise<LH.Audit.Product>}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
-  static async audit(artifacts, context) {
-    const multiProduct = await this.audit_(artifacts, context);
-    return this.createAuditProduct(multiProduct);
+  static audit(artifacts) {
+    return Promise.resolve(this.audit_(artifacts)).then(result => this.createAuditResult(result));
   }
 
   /**
-   * @param {{failures: Array<string>, manifestValues?: LH.Artifacts.ManifestValues}} result
-   * @return {LH.Audit.Product}
+   * @param {!{failures: !Array<!string>, themeColor: ?string, manifestValues: ?Object, }} result
+   * @return {!AuditResult}
    */
-  static createAuditProduct(result) {
-    /** @type {LH.Audit.MultiCheckAuditDetails} */
-    const detailsItem = {
-      ...result,
-      ...result.manifestValues,
-      manifestValues: undefined,
-      warnings: undefined,
-      allChecks: undefined,
+  static createAuditResult(result) {
+    const extendedInfo = {
+      value: result,
     };
-
-    if (result.manifestValues && result.manifestValues.allChecks) {
-      result.manifestValues.allChecks.forEach(check => {
-        detailsItem[check.id] = check.passing;
-      });
-    }
-
-    const details = {items: [detailsItem]};
 
     // If we fail, share the failures
     if (result.failures.length > 0) {
       return {
         rawValue: false,
-        explanation: `Failures: ${result.failures.join(',\n')}.`,
-        details,
+        debugString: `Failures: ${result.failures.join(', ')}.`,
+        extendedInfo,
       };
+    }
+
+    let debugString;
+    if (result.warnings && result.warnings.length > 0) {
+      debugString = `Warnings: ${result.warnings.join(', ')}`;
     }
 
     // Otherwise, we pass
     return {
       rawValue: true,
-      details,
+      extendedInfo,
+      debugString,
     };
   }
 
-  /* eslint-disable no-unused-vars */
-
   /**
-   * @param {LH.Artifacts} artifacts
-   * @param {LH.Audit.Context} context
-   * @return {Promise<{failures: Array<string>, manifestValues?: LH.Artifacts.ManifestValues}>}
+   * @param {!Artifacts} artifacts
    */
-  static audit_(artifacts, context) {
+  static audit_() {
     throw new Error('audit_ unimplemented');
   }
-
-  /* eslint-enable no-unused-vars */
 }
 
 module.exports = MultiCheckAudit;

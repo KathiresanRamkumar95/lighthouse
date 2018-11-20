@@ -15,39 +15,29 @@ const Gatherer = require('./gatherer');
 class ChromeConsoleMessages extends Gatherer {
   constructor() {
     super();
-    /** @type {Array<LH.Crdp.Log.EntryAddedEvent>} */
     this._logEntries = [];
     this._onConsoleEntryAdded = this.onConsoleEntry.bind(this);
   }
 
-  /**
-   * @param {LH.Crdp.Log.EntryAddedEvent} entry
-   */
   onConsoleEntry(entry) {
     this._logEntries.push(entry);
   }
 
-  /**
-   * @param {LH.Gatherer.PassContext} passContext
-   */
-  async beforePass(passContext) {
-    const driver = passContext.driver;
+  beforePass(options) {
+    const driver = options.driver;
     driver.on('Log.entryAdded', this._onConsoleEntryAdded);
-    await driver.sendCommand('Log.enable');
-    await driver.sendCommand('Log.startViolationsReport', {
-      config: [{name: 'discouragedAPIUse', threshold: -1}],
-    });
+    return driver.sendCommand('Log.enable')
+      .then(() => driver.sendCommand('Log.startViolationsReport', {
+        config: [{name: 'discouragedAPIUse', threshold: -1}],
+      }));
   }
 
-  /**
-   * @param {LH.Gatherer.PassContext} passContext
-   * @return {Promise<LH.Artifacts['ChromeConsoleMessages']>}
-   */
-  async afterPass(passContext) {
-    await passContext.driver.sendCommand('Log.stopViolationsReport');
-    await passContext.driver.off('Log.entryAdded', this._onConsoleEntryAdded);
-    await passContext.driver.sendCommand('Log.disable');
-    return this._logEntries;
+  afterPass(options) {
+    return Promise.resolve()
+        .then(_ => options.driver.sendCommand('Log.stopViolationsReport'))
+        .then(_ => options.driver.off('Log.entryAdded', this._onConsoleEntryAdded))
+        .then(_ => options.driver.sendCommand('Log.disable'))
+        .then(_ => this._logEntries);
   }
 }
 

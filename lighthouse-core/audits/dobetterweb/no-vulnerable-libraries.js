@@ -19,36 +19,32 @@ const snykDatabase = require('../../../third-party/snyk/snapshot.json');
 
 const SEMVER_REGEX = /^(\d+\.\d+\.\d+)[^-0-9]+/;
 
-/** @typedef {{npm: Object<string, Array<{id: string, severity: string, semver: {vulnerable: Array<string>}}>>}} SnykDB */
-/** @typedef {{severity: string, numericSeverity: number, library: string, url: string}} Vulnerability */
-
 class NoVulnerableLibrariesAudit extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'no-vulnerable-libraries',
-      title: 'Avoids front-end JavaScript libraries'
+      name: 'no-vulnerable-libraries',
+      description: 'Avoids front-end JavaScript libraries'
         + ' with known security vulnerabilities',
-      failureTitle: 'Includes front-end JavaScript libraries'
+      failureDescription: 'Includes front-end JavaScript libraries'
         + ' with known security vulnerabilities',
-      description: 'Some third-party scripts may contain known security vulnerabilities ' +
-        'that are easily identified and exploited by attackers. ' +
-        '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/vulnerabilities).',
+      helpText: 'Some third-party scripts may contain known security vulnerabilities ' +
+        ' that are easily identified and exploited by attackers.',
       requiredArtifacts: ['JSLibraries'],
     };
   }
 
   /**
-   * @return {SnykDB}
+   * @return {{npm: !Object<string, !Array<{id: string, severity: string, semver: {vulnerable: !Array<string>}}>>}}
    */
   static get snykDB() {
     return snykDatabase;
   }
 
   /**
-   * @return {Object<string, number>}
+   * @return {!Object<string, number>}
    */
   static get severityMap() {
     return {
@@ -70,109 +66,93 @@ class NoVulnerableLibrariesAudit extends Audit {
     // converts 1.5 -> 1.5.0
     if (/^\d+\.\d+$/.test(version)) return `${version}.0`;
     // converts 1.0.0a-bunch-of-crap -> 1.0.0
-    const versionMatch = version.match(SEMVER_REGEX);
-    if (versionMatch) return versionMatch[1];
+    if (SEMVER_REGEX.test(version)) return version.match(SEMVER_REGEX)[1];
     // leave everything else untouched
     return version;
   }
 
   /**
-   * @param {string} normalizedVersion
    * @param {{name: string, version: string, npmPkgName: string|undefined}} lib
-   * @return {Array<Vulnerability>}
+   * @param {{npm: !Object<string, !Array<{id: string, severity: string, semver: {vulnerable: !Array<string>}}>>}} snykDB
+   * @return {!Array<{severity: string, numericSeverity: number, library: string, url: string}>}
    */
-  static getVulnerabilities(normalizedVersion, lib) {
-    const snykDB = NoVulnerableLibrariesAudit.snykDB;
-    if (!lib.npmPkgName || !snykDB.npm[lib.npmPkgName]) {
-      return [];
+  static getVulns(lib, snykDB) {
+    const vulns = [];
+    if (!snykDB.npm[lib.npmPkgName]) {
+      return vulns;
     }
 
     try {
-      semver.satisfies(normalizedVersion, '*');
+      semver.satisfies(lib.version, '*');
     } catch (err) {
       err.pkgName = lib.npmPkgName;
       // Report the failure and skip this library if the version was ill-specified
       Sentry.captureException(err, {level: 'warning'});
-      return [];
+      return vulns;
     }
 
+    lib.pkgLink = `https://snyk.io/vuln/npm:${lib.npmPkgName}?lh@${lib.version}`;
     const snykInfo = snykDB.npm[lib.npmPkgName];
-    const vulns = snykInfo
-      .filter(vuln => semver.satisfies(normalizedVersion, vuln.semver.vulnerable[0]))
-      // valid vulnerability
-      .map(vuln => {
-        return {
+    snykInfo.forEach(vuln => {
+      if (semver.satisfies(lib.version, vuln.semver.vulnerable[0])) {
+        // valid vulnerability
+        vulns.push({
           severity: vuln.severity,
           numericSeverity: this.severityMap[vuln.severity],
-          library: `${lib.name}@${normalizedVersion}`,
+          library: `${lib.name}@${lib.version}`,
           url: 'https://snyk.io/vuln/' + vuln.id,
-        };
-      });
-
+        });
+      }
+    });
     return vulns;
   }
 
   /**
-   * @param {Array<Vulnerability>} vulnerabilities
+   * @param {{severity: string, numericSeverity: number, library: string, url:string }} vulns
    * @return {string}
    */
-  static highestSeverity(vulnerabilities) {
-    const sortedVulns = vulnerabilities
+  static highestSeverity(vulns) {
+    const sortedVulns = vulns
       .sort((a, b) => b.numericSeverity - a.numericSeverity);
     return sortedVulns[0].severity;
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @return {LH.Audit.Product}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
   static audit(artifacts) {
-    const foundLibraries = artifacts.JSLibraries;
-    if (!foundLibraries.length) {
+    const libraries = artifacts.JSLibraries;
+    if (!libraries.length) {
       return {
         rawValue: true,
       };
     }
 
     let totalVulns = 0;
-    /** @type {Array<{highestSeverity: string, vulnCount: number, detectedLib: LH.Audit.DetailsRendererLinkDetailsJSON}>} */
-    const vulnerabilityResults = [];
-
-    const libraryVulns = foundLibraries.map(lib => {
-      const version = this.normalizeVersion(lib.version) || '';
-      const vulns = this.getVulnerabilities(version, lib);
-      const vulnCount = vulns.length;
-      totalVulns += vulnCount;
-
-      let highestSeverity;
-      if (vulns.length > 0) {
-        highestSeverity = this.highestSeverity(vulns).replace(/^\w/, l => l.toUpperCase());
-
-        vulnerabilityResults.push({
-          highestSeverity,
-          vulnCount,
-          detectedLib: {
-            text: lib.name + '@' + version,
-            url: `https://snyk.io/vuln/npm:${lib.npmPkgName}?lh=${version}&utm_source=lighthouse&utm_medium=ref&utm_campaign=audit`,
-            type: 'link',
-          },
-        });
+    const finalVulns = libraries.map(lib => {
+      lib.version = this.normalizeVersion(lib.version);
+      lib.vulns = this.getVulns(lib, this.snykDB);
+      if (lib.vulns.length > 0) {
+        lib.vulnCount = lib.vulns.length;
+        lib.highestSeverity = this.highestSeverity(lib.vulns).replace(/^\w/, l => l.toUpperCase());
+        totalVulns += lib.vulnCount;
+        lib.detectedLib = {};
+        lib.detectedLib.text = lib.name + '@' + lib.version;
+        lib.detectedLib.url = lib.pkgLink;
+        lib.detectedLib.type = 'link';
       }
-
-      return {
-        name: lib.name,
-        npmPkgName: lib.npmPkgName,
-        version,
-        vulns,
-        highestSeverity,
-      };
+      return lib;
+    })
+    .filter(obj => {
+      return obj.vulns.length > 0;
     });
 
     let displayValue = '';
     if (totalVulns > 1) {
-      displayValue = `${totalVulns} vulnerabilities detected`;
+      displayValue = `${totalVulns} vulnerabilities detected.`;
     } else if (totalVulns === 1) {
-      displayValue = `${totalVulns} vulnerability detected`;
+      displayValue = `${totalVulns} vulnerability was detected.`;
     }
 
     const headings = [
@@ -180,14 +160,14 @@ class NoVulnerableLibrariesAudit extends Audit {
       {key: 'vulnCount', itemType: 'text', text: 'Vulnerability Count'},
       {key: 'highestSeverity', itemType: 'text', text: 'Highest Severity'},
     ];
-    const details = Audit.makeTableDetails(headings, vulnerabilityResults, {});
+    const details = Audit.makeTableDetails(headings, finalVulns);
 
     return {
       rawValue: totalVulns === 0,
       displayValue,
       extendedInfo: {
-        jsLibs: libraryVulns,
-        vulnerabilities: vulnerabilityResults,
+        jsLibs: libraries,
+        vulnerabilities: finalVulns,
       },
       details,
     };

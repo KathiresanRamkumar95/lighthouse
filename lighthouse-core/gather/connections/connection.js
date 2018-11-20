@@ -3,84 +3,69 @@
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
  */
+// @ts-nocheck
 'use strict';
 
 const EventEmitter = require('events').EventEmitter;
 const log = require('lighthouse-logger');
-const LHError = require('../../lib/lh-error');
-
-// TODO(bckenny): CommandCallback properties should be tied by command type after
-// https://github.com/Microsoft/TypeScript/pull/22348. See driver.js TODO.
-/**
- * @typedef {{'protocolevent': [LH.Protocol.RawEventMessage]}} ProtocolEventRecord
- * @typedef {LH.Protocol.StrictEventEmitter<ProtocolEventRecord>} CrdpEventMessageEmitter
- * @typedef {LH.CrdpCommands[keyof LH.CrdpCommands]} CommandInfo
- * @typedef {{resolve: function(Promise<CommandInfo['returnType']>): void, method: keyof LH.CrdpCommands}} CommandCallback
- */
+const LHError = require('../../lib/errors');
 
 class Connection {
   constructor() {
     this._lastCommandId = 0;
-    /** @type {Map<number, CommandCallback>} */
+    /** @type {!Map<number, {resolve: function(*), reject: function(*), method: string}>}*/
     this._callbacks = new Map();
-
-    this._eventEmitter = /** @type {?CrdpEventMessageEmitter} */ (new EventEmitter());
+    this._eventEmitter = new EventEmitter();
   }
 
   /**
-   * @return {Promise<void>}
+   * @return {!Promise}
    */
   connect() {
     return Promise.reject(new Error('Not implemented'));
   }
 
   /**
-   * @return {Promise<void>}
+   * @return {!Promise}
    */
   disconnect() {
     return Promise.reject(new Error('Not implemented'));
   }
 
+
   /**
-   * @return {Promise<string>}
+   * @return {!Promise<string>}
    */
   wsEndpoint() {
     return Promise.reject(new Error('Not implemented'));
   }
 
+
   /**
    * Call protocol methods
-   * @template {keyof LH.CrdpCommands} C
-   * @param {C} method
-   * @param {LH.CrdpCommands[C]['paramsType']} paramArgs,
-   * @return {Promise<LH.CrdpCommands[C]['returnType']>}
+   * @param {!string} method
+   * @param {!Object} params
+   * @param {{silent: boolean}=} cmdOpts
+   * @return {!Promise}
    */
-  sendCommand(method, ...paramArgs) {
-    // Reify params since we need it as a property so can't just spread again.
-    const params = paramArgs.length ? paramArgs[0] : undefined;
-
+  sendCommand(method, params = {}, cmdOpts = {}) {
     log.formatProtocol('method => browser', {method, params}, 'verbose');
     const id = ++this._lastCommandId;
     const message = JSON.stringify({id, method, params});
     this.sendRawMessage(message);
-
-    return new Promise(resolve => {
-      this._callbacks.set(id, {method, resolve});
+    return new Promise((resolve, reject) => {
+      this._callbacks.set(id, {resolve, reject, method, options: cmdOpts});
     });
   }
 
   /**
-   * Bind listeners for connection events.
-   * @param {'protocolevent'} eventName
-   * @param {function(LH.Protocol.RawEventMessage): void} cb
+   * Bind listeners for connection events
+   * @param {!string} eventName
+   * @param {function(...args)} cb
    */
   on(eventName, cb) {
-    if (eventName !== 'protocolevent') {
-      throw new Error('Only supports "protocolevent" events');
-    }
-
-    if (!this._eventEmitter) {
-      throw new Error('Attempted to add event listener after connection disposed.');
+    if (eventName !== 'notification') {
+      throw new Error('Only supports "notification" events');
     }
     this._eventEmitter.on(eventName, cb);
   }
@@ -89,37 +74,32 @@ class Connection {
 
   /**
    * @param {string} message
+   * @return {!Promise}
    * @protected
    */
   sendRawMessage(message) {
-    throw new Error('Not implemented');
+    return Promise.reject(new Error('Not implemented'));
   }
 
   /* eslint-enable no-unused-vars */
 
   /**
    * @param {string} message
-   * @return {void}
+   * @return {!Promise}
    * @protected
    */
   handleRawMessage(message) {
-    const object = /** @type {LH.Protocol.RawMessage} */(JSON.parse(message));
-
-    // Responses to commands carry "id" property, while events do not.
-    if (!('id' in object)) {
-      log.formatProtocol('<= event',
-          {method: object.method, params: object.params}, 'verbose');
-      this.emitProtocolEvent(object);
-      return;
-    }
-
-    const callback = this._callbacks.get(object.id);
-    if (callback) {
+    const object = JSON.parse(message);
+    // Remote debugging protocol is JSON RPC 2.0 compiant. In terms of that transport,
+    // responses to the commands carry "id" property, while notifications do not.
+    if (this._callbacks.has(object.id)) {
+      const callback = this._callbacks.get(object.id);
       this._callbacks.delete(object.id);
 
       return callback.resolve(Promise.resolve().then(_ => {
         if (object.error) {
-          log.formatProtocol('method <= browser ERR', {method: callback.method}, 'error');
+          const logLevel = callback.options && callback.options.silent ? 'verbose' : 'error';
+          log.formatProtocol('method <= browser ERR', {method: callback.method}, logLevel);
           throw LHError.fromProtocolMessage(callback.method, object.error);
         }
 
@@ -127,34 +107,34 @@ class Connection {
           {method: callback.method, params: object.result}, 'verbose');
         return object.result;
       }));
-    } else {
+    } else if (object.id) {
       // In DevTools we receive responses to commands we did not send which we cannot act on, so we
       // just log these occurrences.
       const error = object.error && object.error.message;
       log.formatProtocol(`disowned method <= browser ${error ? 'ERR' : 'OK'}`,
-          {method: 'UNKNOWN', params: error || object.result}, 'verbose');
+          {method: object.method, params: error || object.result}, 'verbose');
+    } else {
+      log.formatProtocol('<= event',
+          {method: object.method, params: object.params}, 'verbose');
+      this.emitNotification(object.method, object.params);
     }
   }
 
   /**
-   * @param {LH.Protocol.RawEventMessage} eventMessage
+   * @param {!string} method
+   * @param {!Object} params
+   * @protected
    */
-  emitProtocolEvent(eventMessage) {
-    if (!this._eventEmitter) {
-      throw new Error('Attempted to emit event after connection disposed.');
-    }
-
-    this._eventEmitter.emit('protocolevent', eventMessage);
+  emitNotification(method, params) {
+    this._eventEmitter.emit('notification', {method, params});
   }
 
   /**
    * @protected
    */
   dispose() {
-    if (this._eventEmitter) {
-      this._eventEmitter.removeAllListeners();
-      this._eventEmitter = null;
-    }
+    this._eventEmitter.removeAllListeners();
+    this._eventEmitter = null;
   }
 }
 

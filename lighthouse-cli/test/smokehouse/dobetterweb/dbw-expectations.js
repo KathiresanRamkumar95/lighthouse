@@ -10,36 +10,52 @@
  */
 module.exports = [
   {
-    requestedUrl: 'http://localhost:10200/dobetterweb/dbw_tester.html',
-    finalUrl: 'http://localhost:10200/dobetterweb/dbw_tester.html',
+    initialUrl: 'http://localhost:10200/dobetterweb/dbw_tester.html',
+    url: 'http://localhost:10200/dobetterweb/dbw_tester.html',
     audits: {
       'errors-in-console': {
-        score: 0,
+        score: false,
+        // TODO: should be 5 after m64 (see note in dbw_tester.js)
+        rawValue: 4,
+        displayValue: '4',
         details: {
           items: {
-            length: 6,
+            length: 4,
           },
         },
       },
       'is-on-https': {
-        score: 0,
-        details: {
-          items: {
+        score: false,
+        extendedInfo: {
+          value: {
             length: 1,
           },
         },
       },
       'uses-http2': {
-        score: 0,
+        score: false,
+        extendedInfo: {
+          value: {
+            results: {
+              length: 16,
+            },
+          },
+        },
         details: {
           items: {
-            length: '>15',
+            length: 16,
           },
         },
       },
       'external-anchors-use-rel-noopener': {
-        score: 0,
-        warnings: [/Unable to determine.*<a target="_blank">/],
+        score: false,
+        debugString: 'Lighthouse was unable to determine the destination of some anchor tags. ' +
+                     'If they are not used as hyperlinks, consider removing the _blank target.',
+        extendedInfo: {
+          value: {
+            length: 3,
+          },
+        },
         details: {
           items: {
             length: 3,
@@ -47,100 +63,260 @@ module.exports = [
         },
       },
       'appcache-manifest': {
-        score: 0,
-        displayValue: 'Found "clock.appcache"',
+        score: false,
+        debugString: 'Found <html manifest="clock.appcache">.',
       },
       'geolocation-on-start': {
+        score: false,
+      },
+      'link-blocking-first-paint': {
         score: 0,
+        extendedInfo: {
+          value: {
+            results: {
+              length: 4,
+            },
+          },
+        },
+        details: {
+          items: {
+            length: 4,
+          },
+        },
       },
       'no-document-write': {
-        score: 0,
+        score: false,
+        extendedInfo: {
+          value: {
+            length: 3,
+          },
+        },
         details: {
           items: {
             length: 3,
           },
         },
       },
+      'no-mutation-events': {
+        score: false,
+        extendedInfo: {
+          value: {
+            results: {
+              length: 6,
+            },
+          },
+        },
+        details: {
+          items: {
+            length: 6,
+          },
+        },
+      },
       'no-vulnerable-libraries': {
-        score: 0,
+        score: false,
         details: {
           items: {
             length: 1,
           },
         },
       },
-      'notification-on-start': {
-        score: 0,
+      'no-websql': {
+        score: false,
+        debugString: 'Found database "mydb", version: 1.0.',
       },
-      'render-blocking-resources': {
-        score: '<1',
-        rawValue: '>100',
+      'notification-on-start': {
+        score: false,
+      },
+      'script-blocking-first-paint': {
+        // TODO: re-enable score assertions when we have more flexible assertions like < 100
+        // score: 90,
+        extendedInfo: {
+          value: {
+            results: {
+              length: 1,
+            },
+          },
+        },
         details: {
           items: {
-            length: 7,
+            length: 1,
           },
         },
       },
       'uses-passive-event-listeners': {
-        score: 0,
-        details: {
-          items: {
+        score: false,
+        extendedInfo: {
+          value: {
             // Note: Originally this was 7 but M56 defaults document-level
             // listeners to passive. See https://www.chromestatus.com/features/5093566007214080
-            // Note: It was 4, but {passive:false} doesn't get a warning as of M63: https://crbug.com/770208
-            // Note: It was 3, but wheel events are now also passive as of field trial in M71 https://crbug.com/626196
-            length: '>=1',
-          },
-        },
-      },
-      'deprecations': {
-        score: 0,
-        details: {
-          items: {
-            // Note: HTML Imports added to deprecations in m70, so 3 before, 4 after.
+            // Note: It was 4, but {passive:false} doesn't get a warning as of M63: crbug.com/770208
+            // COMPAT: This can be set to 3 when m63 is stable.
             length: '>=3',
           },
         },
       },
-      'password-inputs-can-be-pasted-into': {
-        score: 0,
+      'deprecations': {
+        score: false,
+        extendedInfo: {
+          value: {
+            length: 3,
+          },
+        },
         details: {
           items: {
+            length: 3,
+          },
+        },
+      },
+      'password-inputs-can-be-pasted-into': {
+        score: false,
+        extendedInfo: {
+          value: {
             length: 2,
           },
         },
       },
       'image-aspect-ratio': {
-        score: 0,
+        score: false,
         details: {
           items: {
             0: {
-              displayedAspectRatio: /^480 x 57/,
+              2: {
+                text: /^480 x 57/,
+              },
             },
             length: 1,
           },
         },
       },
-      'efficient-animated-content': {
-        score: '<0.5',
+    },
+  }, {
+    initialUrl: 'http://localhost:10200/dobetterweb/domtester.html?smallDOM',
+    url: 'http://localhost:10200/dobetterweb/domtester.html?smallDOM',
+    audits: {
+      'dom-size': {
+        score: 100,
+        extendedInfo: {
+          value: {
+            0: {value: '1,324'},
+            1: {value: '7'},
+            2: {value: '1,303'},
+          },
+        },
         details: {
-          overallSavingsMs: '>2000',
-          items: [
-            {
-              url: 'http://localhost:10200/dobetterweb/lighthouse-rotating.gif',
-              totalBytes: 934285,
-              wastedBytes: 682028,
-            },
-          ],
+          items: {
+            0: {value: '1,324'},
+            1: {value: '7'},
+            2: {value: '1,303'},
+          },
         },
       },
-      'js-libraries': {
-        score: 1,
-        details: {
-          items: [{
-            name: 'jQuery',
-          }],
+    },
+  }, {
+    initialUrl: 'http://localhost:10200/dobetterweb/domtester.html?largeDOM&withShadowDOM',
+    url: 'http://localhost:10200/dobetterweb/domtester.html?largeDOM&withShadowDOM',
+    audits: {
+      'dom-size': {
+        score: 0,
+        extendedInfo: {
+          value: {
+            0: {value: '6,037'},
+            1: {value: '9'},
+            2: {value: '6,003'},
+          },
         },
+        details: {
+          items: {
+            0: {value: '6,037'},
+            1: {value: '9'},
+            2: {value: '6,003'},
+          },
+        },
+      },
+    },
+  }, {
+    initialUrl: 'http://localhost:10200/dobetterweb/domtester.html?withShadowDOM',
+    url: 'http://localhost:10200/dobetterweb/domtester.html?withShadowDOM',
+    audits: {
+      'dom-size': {
+        score: 100,
+        extendedInfo: {
+          value: {
+            0: {value: '37'},
+            1: {value: '9'},
+            2: {value: '9'},
+          },
+        },
+        details: {
+          items: {
+            0: {value: '37'},
+            1: {value: '9'},
+            2: {value: '9'},
+          },
+        },
+      },
+    },
+  }, {
+    initialUrl: 'http://localhost:10200/dobetterweb/domtester.html?ShadowRootWithManyChildren',
+    url: 'http://localhost:10200/dobetterweb/domtester.html?ShadowRootWithManyChildren',
+    audits: {
+      'dom-size': {
+        score: 100,
+        extendedInfo: {
+          value: {
+            0: {value: '33'},
+            1: {value: '7'},
+            2: {value: '9'},
+          },
+        },
+        details: {
+          items: {
+            0: {value: '33'},
+            1: {value: '7'},
+            2: {value: '9'},
+          },
+        },
+      },
+    },
+  }, {
+    initialUrl: 'http://localhost:10200/online-only.html',
+    url: 'http://localhost:10200/online-only.html',
+    audits: {
+      'is-on-https': {
+        score: true,
+      },
+      'uses-http2': {
+        score: false,
+      },
+      'external-anchors-use-rel-noopener': {
+        score: true,
+      },
+      'appcache-manifest': {
+        score: true,
+      },
+      'geolocation-on-start': {
+        score: true,
+      },
+      'link-blocking-first-paint': {
+        score: 100,
+      },
+      'no-document-write': {
+        score: true,
+      },
+      'no-mutation-events': {
+        score: true,
+      },
+      'no-websql': {
+        score: true,
+      },
+      'script-blocking-first-paint': {
+        score: 100,
+      },
+      'uses-passive-event-listeners': {
+        score: true,
+      },
+      'password-inputs-can-be-pasted-into': {
+        score: true,
       },
     },
   },

@@ -12,41 +12,42 @@
  */
 
 const Audit = require('./audit');
-const Util = require('../report/html/renderer/util');
+const Util = require('../report/v2/renderer/util');
 
 class Deprecations extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'deprecations',
-      title: 'Avoids deprecated APIs',
-      failureTitle: 'Uses deprecated APIs',
-      description: 'Deprecated APIs will eventually be removed from the browser. ' +
+      name: 'deprecations',
+      description: 'Avoids deprecated APIs',
+      failureDescription: 'Uses deprecated API\'s',
+      helpText: 'Deprecated APIs will eventually be removed from the browser. ' +
           '[Learn more](https://www.chromestatus.com/features#deprecated).',
       requiredArtifacts: ['ChromeConsoleMessages'],
     };
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @return {LH.Audit.Product}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
   static audit(artifacts) {
     const entries = artifacts.ChromeConsoleMessages;
 
     const deprecations = entries.filter(log => log.entry.source === 'deprecation').map(log => {
       return {
-        value: log.entry.text,
-        url: log.entry.url || '',
+        type: 'code',
+        text: log.entry.text,
+        url: log.entry.url,
         source: log.entry.source,
         lineNumber: log.entry.lineNumber,
       };
     });
 
     const headings = [
-      {key: 'value', itemType: 'code', text: 'Deprecation / Warning'},
+      {key: 'text', itemType: 'code', text: 'Deprecation / Warning'},
       {key: 'url', itemType: 'url', text: 'URL'},
       {key: 'lineNumber', itemType: 'text', text: 'Line'},
     ];

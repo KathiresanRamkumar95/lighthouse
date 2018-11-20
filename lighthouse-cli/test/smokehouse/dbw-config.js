@@ -16,9 +16,9 @@ module.exports = {
     ],
     onlyAudits: [
       'dom-size',
-      'render-blocking-resources',
+      'link-blocking-first-paint',
+      'script-blocking-first-paint',
       'errors-in-console',
-      'efficient-animated-content',
     ],
   },
 };

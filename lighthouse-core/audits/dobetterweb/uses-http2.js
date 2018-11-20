@@ -13,59 +13,52 @@
 
 const URL = require('../../lib/url-shim');
 const Audit = require('../audit');
-const Util = require('../../report/html/renderer/util.js');
-const NetworkRecords = require('../../gather/computed/network-records.js');
+const Util = require('../../report/v2/renderer/util.js');
 
 class UsesHTTP2Audit extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'uses-http2',
-      title: 'Uses HTTP/2 for its own resources',
-      failureTitle: 'Does not use HTTP/2 for all of its resources',
-      description: 'HTTP/2 offers many benefits over HTTP/1.1, including binary headers, ' +
+      name: 'uses-http2',
+      description: 'Uses HTTP/2 for its own resources',
+      failureDescription: 'Does not use HTTP/2 for all of its resources',
+      helpText: 'HTTP/2 offers many benefits over HTTP/1.1, including binary headers, ' +
           'multiplexing, and server push. [Learn more](https://developers.google.com/web/tools/lighthouse/audits/http2).',
       requiredArtifacts: ['URL', 'devtoolsLogs'],
     };
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @param {LH.Audit.Context} context
-   * @return {Promise<LH.Audit.Product>}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
-  static audit(artifacts, context) {
+  static audit(artifacts) {
     const devtoolsLogs = artifacts.devtoolsLogs[Audit.DEFAULT_PASS];
-    return NetworkRecords.request(devtoolsLogs, context).then(networkRecords => {
+    return artifacts.requestNetworkRecords(devtoolsLogs).then(networkRecords => {
       const finalHost = new URL(artifacts.URL.finalUrl).host;
 
-      const seenURLs = new Set();
       // Filter requests that are on the same host as the page and not over h2.
       const resources = networkRecords.filter(record => {
         // test the protocol first to avoid (potentially) expensive URL parsing
         const isOldHttp = /HTTP\/[01][.\d]?/i.test(record.protocol);
         if (!isOldHttp) return false;
-        const requestHost = new URL(record.url).host;
+        const requestHost = new URL(record._url).host;
         return requestHost === finalHost;
       }).map(record => {
         return {
           protocol: record.protocol,
-          url: record.url,
+          url: record.url, // .url is a getter and not copied over for the assign.
         };
-      }).filter(record => {
-        if (seenURLs.has(record.url)) return false;
-        seenURLs.add(record.url);
-        return true;
       });
 
       let displayValue = '';
       if (resources.length > 1) {
         displayValue =
-          `${Util.formatNumber(resources.length)} requests not served via HTTP/2`;
+          `${Util.formatNumber(resources.length)} requests were not handled over HTTP/2`;
       } else if (resources.length === 1) {
-        displayValue = `${resources.length} request not served via HTTP/2`;
+        displayValue = `${resources.length} request was not handled over HTTP/2`;
       }
 
       const headings = [

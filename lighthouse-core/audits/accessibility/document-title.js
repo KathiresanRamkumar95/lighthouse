@@ -11,35 +11,22 @@
  */
 
 const AxeAudit = require('./axe-audit');
-const i18n = require('../../lib/i18n/i18n.js');
-
-const UIStrings = {
-  /** Title of an accesibility audit that evaluates if the page has a <title> element that describes the page. This title is descriptive of the successful state and is shown to users when no user action is required. */
-  title: 'Document has a `<title>` element',
-  /** Title of an accesibility audit that evaluates if the page has a <title> element that describes the page. This title is descriptive of the failing state and is shown to users when there is a failure that needs to be addressed. */
-  failureTitle: 'Document doesn\'t have a `<title>` element',
-  /** Description of a Lighthouse audit that tells the user *why* they should try to pass. This is displayed after a user expands the section to see more. No character length limits. 'Learn More' becomes link text to additional documentation. */
-  description: 'The title gives screen reader users an overview of the page, and search ' +
-      'engine users rely on it heavily to determine if a page is relevant to their search. ' +
-      '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/title).',
-};
-
-const str_ = i18n.createMessageInstanceIdFn(__filename, UIStrings);
 
 class DocumentTitle extends AxeAudit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'document-title',
-      title: str_(UIStrings.title),
-      failureTitle: str_(UIStrings.failureTitle),
-      description: str_(UIStrings.description),
+      name: 'document-title',
+      description: 'Document has a `<title>` element',
+      failureDescription: 'Document does not have a `<title>` element',
+      helpText: 'Screen reader users use page titles to get an overview of the contents of ' +
+          'the page. ' +
+          '[Learn more](https://dequeuniversity.com/rules/axe/2.2/document-title?application=lighthouse).',
       requiredArtifacts: ['Accessibility'],
     };
   }
 }
 
 module.exports = DocumentTitle;
-module.exports.UIStrings = UIStrings;

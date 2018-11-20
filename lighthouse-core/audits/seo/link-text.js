@@ -21,42 +21,35 @@ const BLOCKLIST = new Set([
 
 class LinkText extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'link-text',
-      title: 'Links have descriptive text',
-      failureTitle: 'Links do not have descriptive text',
-      description: 'Descriptive link text helps search engines understand your content. ' +
-      '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/descriptive-link-text).',
+      category: 'Content Best Practices',
+      name: 'link-text',
+      description: 'Links have descriptive text',
+      failureDescription: 'Links do not have descriptive text',
+      helpText: 'Descriptive link text helps search engines understand your content. ' +
+      '[Learn more](https://webmasters.googleblog.com/2008/10/importance-of-link-architecture.html).',
       requiredArtifacts: ['URL', 'CrawlableLinks'],
     };
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @return {LH.Audit.Product}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
   static audit(artifacts) {
     const failingLinks = artifacts.CrawlableLinks
       .filter(link => {
-        const href = link.href.toLowerCase();
         if (
-          href.startsWith('javascript:') ||
-          href.startsWith('mailto:') ||
+          link.href.toLowerCase().startsWith('javascript:') ||
           URL.equalWithExcludedFragments(link.href, artifacts.URL.finalUrl)
         ) {
           return false;
         }
 
         return BLOCKLIST.has(link.text.trim().toLowerCase());
-      })
-      .map(link => {
-        return {
-          href: link.href,
-          text: link.text.trim(),
-        };
       });
 
     const headings = [
@@ -64,7 +57,7 @@ class LinkText extends Audit {
       {key: 'text', itemType: 'text', text: 'Link Text'},
     ];
 
-    const details = Audit.makeTableDetails(headings, failingLinks, {});
+    const details = Audit.makeTableDetails(headings, failingLinks);
     let displayValue;
 
     if (failingLinks.length) {

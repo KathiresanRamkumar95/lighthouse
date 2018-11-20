@@ -8,82 +8,140 @@
 /** @fileoverview
  *  This audit evaluates if a page's load performance is fast enough for it to be considered a PWA.
  *  We are doublechecking that the network requests were throttled (or slow on their own)
- *  Afterwards, we report if the TTI is less than 10 seconds.
+ *  Afterwards, we report if the TTFI is less than 10 seconds.
  */
 
-const isDeepEqual = require('lodash.isequal');
 const Audit = require('./audit');
-const mobileThrottling = require('../config/constants').throttling.mobileSlow4G;
-const Interactive = require('../gather/computed/metrics/interactive.js');
+const URL = require('../lib/url-shim');
+const Emulation = require('../lib/emulation');
+const Sentry = require('../lib/sentry');
+const Util = require('../report/v2/renderer/util.js');
 
-const displayValueText = `Interactive at %d\xa0s`;
-const displayValueTextWithOverride = `Interactive on simulated mobile network at %d\xa0s`;
-
-// Maximum TTI to be considered "fast" for PWA baseline checklist
+// Maximum TTFI to be considered "fast" for PWA baseline checklist
 //   https://developers.google.com/web/progressive-web-apps/checklist
-const MAXIMUM_TTI = 10 * 1000;
+const MAXIMUM_TTFI = 10 * 1000;
+
+const WHITELISTED_STATUS_CODES = [307];
 
 class LoadFastEnough4Pwa extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'load-fast-enough-for-pwa',
-      title: 'Page load is fast enough on mobile networks',
-      failureTitle: 'Page load is not fast enough on mobile networks',
-      description:
-        'A fast page load over a cellular network ensures a good mobile user experience. ' +
-        '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/fast-3g).',
+      name: 'load-fast-enough-for-pwa',
+      description: 'Page load is fast enough on 3G',
+      failureDescription: 'Page load is not fast enough on 3G',
+      helpText: 'A fast page load over a 3G network ensures a good mobile user experience. ' +
+          '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/fast-3g).',
       requiredArtifacts: ['traces', 'devtoolsLogs'],
     };
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @param {LH.Audit.Context} context
-   * @return {Promise<LH.Audit.Product>}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
-  static async audit(artifacts, context) {
-    const trace = artifacts.traces[Audit.DEFAULT_PASS];
-    const devtoolsLog = artifacts.devtoolsLogs[Audit.DEFAULT_PASS];
+  static audit(artifacts) {
+    const devtoolsLogs = artifacts.devtoolsLogs[Audit.DEFAULT_PASS];
+    return artifacts.requestNetworkRecords(devtoolsLogs).then(networkRecords => {
+      const firstRequestLatenciesByOrigin = new Map();
+      networkRecords.forEach(record => {
+        // Ignore requests that don't have valid origin, timing data, came from the cache, were
+        // redirected by Chrome without going to the network, or are not finished.
+        const fromCache = record._fromDiskCache || record._fromMemoryCache;
+        const origin = URL.getOrigin(record._url);
+        if (!origin || !record._timing || fromCache ||
+            WHITELISTED_STATUS_CODES.includes(record.statusCode) || !record.finished) {
+          return;
+        }
 
-    // If throttling was default devtools or lantern slow 4G throttling, then reuse the given settings
-    // Otherwise, we'll force the usage of lantern slow 4G.
-    const settingOverrides = {throttlingMethod: 'simulate', throttling: mobileThrottling};
+        // Disregard requests with an invalid start time, (H2 request start times are sometimes less
+        // than issue time and even negative which throws off timing)
+        if (record._startTime < record._issueTime) {
+          return;
+        }
 
-    // Override settings for interactive if provided throttling was used or network
-    // throttling was not consistent with standard `mobile network throttling`
-    const override = context.settings.throttlingMethod === 'provided' ||
-      !isDeepEqual(context.settings.throttling, mobileThrottling);
+        // Use DevTools' definition of Waiting latency: https://github.com/ChromeDevTools/devtools-frontend/blob/66595b8a73a9c873ea7714205b828866630e9e82/front_end/network/RequestTimingView.js#L164
+        const latency = record._timing.receiveHeadersEnd - record._timing.sendEnd;
+        const latencyInfo = {
+          url: record._url,
+          startTime: record._startTime,
+          origin,
+          latency,
+        };
 
-    const displayValueFinal = override ? displayValueTextWithOverride : displayValueText;
+        // Only examine the first request per origin to reduce noisiness from cases like H2 push
+        // where individual request latency may not apply.
+        const existing = firstRequestLatenciesByOrigin.get(origin);
+        if (!existing || latencyInfo.startTime < existing.startTime) {
+          firstRequestLatenciesByOrigin.set(origin, latencyInfo);
+        }
+      });
 
-    const settings = override ? Object.assign({}, context.settings, settingOverrides) :
-      context.settings;
+      let firstRequestLatencies = Array.from(firstRequestLatenciesByOrigin.values());
+      const latency3gMin = Emulation.settings.TYPICAL_MOBILE_THROTTLING_METRICS.targetLatency - 10;
+      const areLatenciesAll3G = firstRequestLatencies.every(val => val.latency > latency3gMin);
+      firstRequestLatencies = firstRequestLatencies.map(item => ({
+        url: item.url,
+        latency: Util.formatNumber(item.latency, 2),
+      }));
 
-    const metricComputationData = {trace, devtoolsLog, settings};
-    const tti = await Interactive.request(metricComputationData, context);
+      const trace = artifacts.traces[Audit.DEFAULT_PASS];
+      return artifacts.requestFirstInteractive(trace).then(firstInteractive => {
+        const timeToFirstInteractive = firstInteractive.timeInMs;
+        const isFast = timeToFirstInteractive < MAXIMUM_TTFI;
 
-    const score = Number(tti.timing < MAXIMUM_TTI);
+        const extendedInfo = {
+          value: {areLatenciesAll3G, firstRequestLatencies, isFast, timeToFirstInteractive},
+        };
 
-    /** @type {LH.Audit.DisplayValue|undefined} */
-    let displayValue;
-    /** @type {string|undefined} */
-    let explanation;
-    if (!score) {
-      displayValue = [displayValueFinal, tti.timing / 1000];
-      explanation = 'Your page loads too slowly and is not interactive within 10 seconds. ' +
-        'Look at the opportunities and diagnostics in the "Performance" section to learn how to ' +
-        'improve.';
-    }
+        const details = Audit.makeTableDetails([
+          {key: 'url', itemType: 'url', text: 'URL'},
+          {key: 'latency', itemType: 'text', text: 'Latency (ms)'},
+        ], firstRequestLatencies);
 
-    return {
-      score,
-      displayValue,
-      explanation,
-      rawValue: tti.timing,
-    };
+        if (!isFast) {
+          return {
+            rawValue: false,
+            // eslint-disable-next-line max-len
+            debugString: `First Interactive was at ${Util.formatMilliseconds(timeToFirstInteractive)}. More details in the "Performance" section.`,
+            extendedInfo,
+          };
+        }
+
+        if (!areLatenciesAll3G) {
+          const sentryContext = Sentry.getContext();
+          const hadThrottlingEnabled = sentryContext && sentryContext.extra &&
+              sentryContext.extra.networkThrottling;
+
+          if (hadThrottlingEnabled) {
+            // Track these instances in Sentry since there should be no requests that are fast when
+            // throttling is enabled, and it's likely a throttling bug we should look into.
+            const violatingLatency = firstRequestLatencies
+                .find(item => Number(item.latency) < latency3gMin);
+            Sentry.captureMessage('Network request latencies were not realistic', {
+              tags: {audit: this.meta.name},
+              extra: {violatingLatency},
+              level: 'warning',
+            });
+          }
+
+          return {
+            rawValue: true,
+            // eslint-disable-next-line max-len
+            debugString: `First Interactive was found at ${Util.formatMilliseconds(timeToFirstInteractive)}; however, the network request latencies were not sufficiently realistic, so the performance measurements cannot be trusted.`,
+            extendedInfo,
+            details,
+          };
+        }
+
+        return {
+          rawValue: true,
+          extendedInfo,
+        };
+      });
+    });
   }
 }
 

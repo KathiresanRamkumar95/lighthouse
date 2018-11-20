@@ -14,27 +14,26 @@ const Audit = require('./audit');
 
 class ErrorLogs extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'errors-in-console',
-      title: 'No browser errors logged to the console',
-      description: 'Errors logged to the console indicate unresolved problems. ' +
+      name: 'errors-in-console',
+      description: 'No browser errors logged to the console',
+      helpText: 'Errors logged to the console indicate unresolved problems. ' +
         'They can come from network request failures and other browser concerns.',
-      failureTitle: 'Browser errors were logged to the console',
+      failureDescription: 'Browser errors were logged to the console',
       requiredArtifacts: ['ChromeConsoleMessages', 'RuntimeExceptions'],
     };
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @return {LH.Audit.Product}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
   static audit(artifacts) {
     const consoleEntries = artifacts.ChromeConsoleMessages;
     const runtimeExceptions = artifacts.RuntimeExceptions;
-    /** @type {Array<{source: string, description: string|undefined, url: string|undefined}>} */
     const consoleRows =
       consoleEntries.filter(log => log.entry && log.entry.level === 'error')
       .map(item => {
@@ -69,7 +68,7 @@ class ErrorLogs extends Audit {
     const numErrors = tableRows.length;
 
     return {
-      score: Number(numErrors === 0),
+      score: numErrors === 0,
       rawValue: numErrors,
       details,
     };

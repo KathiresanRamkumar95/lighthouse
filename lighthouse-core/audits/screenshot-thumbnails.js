@@ -6,27 +6,24 @@
 'use strict';
 
 const Audit = require('./audit');
-const LHError = require('../lib/lh-error');
+const TTFI = require('./first-interactive');
+const TTCI = require('./consistently-interactive');
 const jpeg = require('jpeg-js');
-const Speedline = require('../gather/computed/speedline.js');
-const Interactive = require('../gather/computed/metrics/interactive.js');
 
 const NUMBER_OF_THUMBNAILS = 10;
 const THUMBNAIL_WIDTH = 120;
 
-/** @typedef {LH.Artifacts.Speedline['frames'][0]} SpeedlineFrame */
-
 class ScreenshotThumbnails extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'screenshot-thumbnails',
-      scoreDisplayMode: Audit.SCORING_MODES.INFORMATIVE,
-      title: 'Screenshot Thumbnails',
-      description: 'This is what the load of your site looked like.',
-      requiredArtifacts: ['traces', 'devtoolsLogs'],
+      name: 'screenshot-thumbnails',
+      informative: true,
+      description: 'Screenshot Thumbnails',
+      helpText: 'This is what the load of your site looked like.',
+      requiredArtifacts: ['traces'],
     };
   }
 
@@ -34,8 +31,8 @@ class ScreenshotThumbnails extends Audit {
    * Scales down an image to THUMBNAIL_WIDTH using nearest neighbor for speed, maintains aspect
    * ratio of the original thumbnail.
    *
-   * @param {ReturnType<SpeedlineFrame['getParsedImage']>} imageData
-   * @return {{width: number, height: number, data: Uint8Array}}
+   * @param {{width: number, height: number, data: !Array<number>}} imageData
+   * @return {{width: number, height: number, data: !Array<number>}}
    */
   static scaleImageToThumbnail(imageData) {
     const scaledWidth = THUMBNAIL_WIDTH;
@@ -67,80 +64,65 @@ class ScreenshotThumbnails extends Audit {
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @param {LH.Audit.Context} context
-   * @return {Promise<LH.Audit.Product>}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
-  static async audit(artifacts, context) {
+  static audit(artifacts) {
     const trace = artifacts.traces[Audit.DEFAULT_PASS];
-    /** @type {Map<SpeedlineFrame, string>} */
     const cachedThumbnails = new Map();
 
-    const speedline = await Speedline.request(trace, context);
+    return Promise.all([
+      artifacts.requestSpeedline(trace),
+      TTFI.audit(artifacts).catch(() => ({rawValue: 0})),
+      TTCI.audit(artifacts).catch(() => ({rawValue: 0})),
+    ]).then(([speedline, ttfi, ttci]) => {
+      const thumbnails = [];
+      const analyzedFrames = speedline.frames.filter(frame => !frame.isProgressInterpolated());
+      const maxFrameTime =
+        speedline.complete ||
+        Math.max(...speedline.frames.map(frame => frame.getTimeStamp() - speedline.beginning));
+      // Find thumbnails to cover the full range of the trace (max of last visual change and time
+      // to interactive).
+      const timelineEnd = Math.max(maxFrameTime, ttfi.rawValue, ttci.rawValue);
 
-    // Make the minimum time range 3s so sites that load super quickly don't get a single screenshot
-    let minimumTimelineDuration = context.options.minimumTimelineDuration || 3000;
-    // Ensure thumbnails cover the full range of the trace (TTI can be later than visually complete)
-    if (context.settings.throttlingMethod !== 'simulate') {
-      const devtoolsLog = artifacts.devtoolsLogs[Audit.DEFAULT_PASS];
-      const metricComputationData = {trace, devtoolsLog, settings: context.settings};
-      const tti = Interactive.request(metricComputationData, context);
-      try {
-        minimumTimelineDuration = Math.max((await tti).timing, minimumTimelineDuration);
-      } catch (_) {}
-    }
+      for (let i = 1; i <= NUMBER_OF_THUMBNAILS; i++) {
+        const targetTimestamp = speedline.beginning + timelineEnd * i / NUMBER_OF_THUMBNAILS;
 
-    const thumbnails = [];
-    const analyzedFrames = speedline.frames.filter(frame => !frame.isProgressInterpolated());
-    const maxFrameTime =
-      speedline.complete ||
-      Math.max(...speedline.frames.map(frame => frame.getTimeStamp() - speedline.beginning));
-    const timelineEnd = Math.max(maxFrameTime, minimumTimelineDuration);
+        let frameForTimestamp = null;
+        if (i === NUMBER_OF_THUMBNAILS) {
+          frameForTimestamp = analyzedFrames[analyzedFrames.length - 1];
+        } else {
+          analyzedFrames.forEach(frame => {
+            if (frame.getTimeStamp() <= targetTimestamp) {
+              frameForTimestamp = frame;
+            }
+          });
+        }
 
-    if (!analyzedFrames.length || !Number.isFinite(timelineEnd)) {
-      throw new LHError(LHError.errors.INVALID_SPEEDLINE);
-    }
-
-    for (let i = 1; i <= NUMBER_OF_THUMBNAILS; i++) {
-      const targetTimestamp = speedline.beginning + timelineEnd * i / NUMBER_OF_THUMBNAILS;
-
-      /** @type {SpeedlineFrame} */
-      // @ts-ignore - there will always be at least one frame by this point. TODO: use nonnullable assertion in TS2.9
-      let frameForTimestamp = null;
-      if (i === NUMBER_OF_THUMBNAILS) {
-        frameForTimestamp = analyzedFrames[analyzedFrames.length - 1];
-      } else {
-        analyzedFrames.forEach(frame => {
-          if (frame.getTimeStamp() <= targetTimestamp) {
-            frameForTimestamp = frame;
-          }
-        });
-      }
-      let base64Data;
-      if (cachedThumbnails.has(frameForTimestamp)) {
-        base64Data = cachedThumbnails.get(frameForTimestamp);
-      } else {
         const imageData = frameForTimestamp.getParsedImage();
         const thumbnailImageData = ScreenshotThumbnails.scaleImageToThumbnail(imageData);
-        base64Data = jpeg.encode(thumbnailImageData, 90).data.toString('base64');
-        cachedThumbnails.set(frameForTimestamp, base64Data);
-      }
-      thumbnails.push({
-        timing: Math.round(targetTimestamp - speedline.beginning),
-        timestamp: targetTimestamp * 1000,
-        data: base64Data,
-      });
-    }
+        const base64Data =
+          cachedThumbnails.get(frameForTimestamp) ||
+          jpeg.encode(thumbnailImageData, 90).data.toString('base64');
 
-    return {
-      score: 1,
-      rawValue: thumbnails.length > 0,
-      details: {
-        type: 'filmstrip',
-        scale: timelineEnd,
-        items: thumbnails,
-      },
-    };
+        cachedThumbnails.set(frameForTimestamp, base64Data);
+        thumbnails.push({
+          timing: Math.round(targetTimestamp - speedline.beginning),
+          timestamp: targetTimestamp * 1000,
+          data: base64Data,
+        });
+      }
+
+      return {
+        score: 100,
+        rawValue: thumbnails.length > 0,
+        details: {
+          type: 'filmstrip',
+          scale: timelineEnd,
+          items: thumbnails,
+        },
+      };
+    });
   }
 }
 

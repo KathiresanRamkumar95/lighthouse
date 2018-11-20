@@ -11,37 +11,24 @@
  */
 
 const AxeAudit = require('./axe-audit');
-const i18n = require('../../lib/i18n/i18n.js');
-
-const UIStrings = {
-  /** Title of an accesibility audit that evaluates if the root HTML tag has a lang attribute identifying the page's language. This title is descriptive of the successful state and is shown to users when no user action is required. */
-  title: '`<html>` element has a `[lang]` attribute',
-  /** Title of an accesibility audit that evaluates if the root HTML tag has a lang attribute identifying the page's language. This title is descriptive of the failing state and is shown to users when there is a failure that needs to be addressed. */
-  failureTitle: '`<html>` element does not have a `[lang]` attribute',
-  /** Description of a Lighthouse audit that tells the user *why* they should try to pass. This is displayed after a user expands the section to see more. No character length limits. 'Learn More' becomes link text to additional documentation. */
-  description: 'If a page doesn\'t specify a lang attribute, a screen reader assumes ' +
-      'that the page is in the default language that the user chose when setting up the ' +
-      'screen reader. If the page isn\'t actually in the default language, then the screen ' +
-      'reader might not announce the page\'s text correctly. ' +
-      '[Learn more](https://dequeuniversity.com/rules/axe/2.2/html-lang?application=lighthouse).',
-};
-
-const str_ = i18n.createMessageInstanceIdFn(__filename, UIStrings);
 
 class HTMLHasLang extends AxeAudit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'html-has-lang',
-      title: str_(UIStrings.title),
-      failureTitle: str_(UIStrings.failureTitle),
-      description: str_(UIStrings.description),
+      name: 'html-has-lang',
+      description: '`<html>` element has a `[lang]` attribute',
+      failureDescription: '`<html>` element does not have a `[lang]` attribute',
+      helpText: 'If a page doesn\'t specify a lang attribute, a screen reader assumes ' +
+          'that the page is in the default language that the user chose when setting up the ' +
+          'screen reader. If the page isn\'t actually in the default language, then the screen ' +
+          'reader might not announce the page\'s text correctly. ' +
+          '[Learn more](https://dequeuniversity.com/rules/axe/2.2/html-lang?application=lighthouse).',
       requiredArtifacts: ['Accessibility'],
     };
   }
 }
 
 module.exports = HTMLHasLang;
-module.exports.UIStrings = UIStrings;

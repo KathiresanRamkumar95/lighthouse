@@ -8,7 +8,6 @@
 const Audit = require('../audit');
 const LinkHeader = require('http-link-header');
 const URL = require('../../lib/url-shim');
-const MainResource = require('../../gather/computed/main-resource.js');
 const LINK_HEADER = 'link';
 
 /**
@@ -57,50 +56,41 @@ function getPrimaryDomain(url) {
 
 class Canonical extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'canonical',
-      title: 'Document has a valid `rel=canonical`',
-      failureTitle: 'Document does not have a valid `rel=canonical`',
-      description: 'Canonical links suggest which URL to show in search results. ' +
-        '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/canonical).',
-      requiredArtifacts: ['Canonical', 'Hreflang', 'URL'],
+      name: 'canonical',
+      description: 'Document has a valid `rel=canonical`',
+      failureDescription: 'Document does not have a valid `rel=canonical`',
+      helpText: 'Canonical links suggest which URL to show in search results. ' +
+        'Read more in [Use canonical URLs]' +
+        '(https://support.google.com/webmasters/answer/139066).',
+      requiredArtifacts: ['Canonical', 'Hreflang'],
     };
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @param {LH.Audit.Context} context
-   * @return {Promise<LH.Audit.Product>}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
-  static audit(artifacts, context) {
-    const devtoolsLog = artifacts.devtoolsLogs[Audit.DEFAULT_PASS];
+  static audit(artifacts) {
+    const devtoolsLogs = artifacts.devtoolsLogs[Audit.DEFAULT_PASS];
 
-    return MainResource.request({devtoolsLog, URL: artifacts.URL}, context)
+    return artifacts.requestMainResource(devtoolsLogs)
       .then(mainResource => {
         const baseURL = new URL(mainResource.url);
-        /** @type {Array<string>} */
         let canonicals = [];
-        /** @type {Array<string>} */
         let hreflangs = [];
 
-        mainResource.responseHeaders && mainResource.responseHeaders
+        mainResource.responseHeaders
           .filter(h => h.name.toLowerCase() === LINK_HEADER)
           .forEach(h => {
             canonicals = canonicals.concat(getCanonicalLinksFromHeader(h.value));
             hreflangs = hreflangs.concat(getHreflangsFromHeader(h.value));
           });
 
-        for (const canonical of artifacts.Canonical) {
-          if (canonical !== null) {
-            canonicals.push(canonical);
-          }
-        }
-        // we should only fail if there are multiple conflicting URLs
-        // see: https://github.com/GoogleChrome/lighthouse/issues/3178#issuecomment-381181762
-        canonicals = Array.from(new Set(canonicals));
+        canonicals = canonicals.concat(artifacts.Canonical);
 
         artifacts.Hreflang.forEach(({href}) => hreflangs.push(href));
 
@@ -118,7 +108,7 @@ class Canonical extends Audit {
         if (canonicals.length > 1) {
           return {
             rawValue: false,
-            explanation: `Multiple conflicting URLs (${canonicals.join(', ')})`,
+            debugString: `Multiple URLs (${canonicals.join(', ')})`,
           };
         }
 
@@ -127,14 +117,14 @@ class Canonical extends Audit {
         if (!isValidRelativeOrAbsoluteURL(canonical)) {
           return {
             rawValue: false,
-            explanation: `Invalid URL (${canonical})`,
+            debugString: `Invalid URL (${canonical})`,
           };
         }
 
         if (!URL.isValid(canonical)) {
           return {
             rawValue: false,
-            explanation: `Relative URL (${canonical})`,
+            debugString: `Relative URL (${canonical})`,
           };
         }
 
@@ -145,7 +135,7 @@ class Canonical extends Audit {
           baseURL.href !== canonicalURL.href) {
           return {
             rawValue: false,
-            explanation: `Points to another hreflang location (${baseURL.href})`,
+            debugString: `Points to another hreflang location (${baseURL.href})`,
           };
         }
 
@@ -154,7 +144,7 @@ class Canonical extends Audit {
         if (getPrimaryDomain(canonicalURL) !== getPrimaryDomain(baseURL)) {
           return {
             rawValue: false,
-            explanation: `Points to a different domain (${canonicalURL})`,
+            debugString: `Points to a different domain (${canonicalURL})`,
           };
         }
 
@@ -163,7 +153,7 @@ class Canonical extends Audit {
           canonicalURL.pathname === '/' && baseURL.pathname !== '/') {
           return {
             rawValue: false,
-            explanation: 'Points to a root of the same origin',
+            debugString: 'Points to a root of the same origin',
           };
         }
 

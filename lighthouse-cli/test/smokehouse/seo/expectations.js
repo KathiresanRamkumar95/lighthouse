@@ -23,30 +23,25 @@ const failureHeaders = headersParam([[
   '<https://example.com>; rel="canonical"',
 ]]);
 
-const passHeaders = headersParam([[
-  'link',
-  '<http://localhost:10200/seo/>; rel="canonical"',
-]]);
-
 /**
  * Expected Lighthouse audit values for seo tests
  */
 module.exports = [
   {
-    requestedUrl: BASE_URL + 'seo-tester.html?' + passHeaders,
-    finalUrl: BASE_URL + 'seo-tester.html?' + passHeaders,
+    initialUrl: BASE_URL + 'seo-tester.html',
+    url: BASE_URL + 'seo-tester.html',
     audits: {
       'viewport': {
-        score: 1,
+        score: true,
       },
       'document-title': {
-        score: 1,
+        score: true,
       },
       'meta-description': {
-        score: 1,
+        score: true,
       },
       'http-status-code': {
-        score: 1,
+        score: true,
       },
       'font-size': {
         rawValue: true,
@@ -57,57 +52,59 @@ module.exports = [
         },
       },
       'link-text': {
-        score: 1,
+        score: true,
       },
       'is-crawlable': {
-        score: 1,
+        score: true,
       },
       'hreflang': {
-        score: 1,
+        score: true,
       },
       'plugins': {
-        score: 1,
+        score: true,
       },
       'canonical': {
-        score: 1,
-      },
-      'robots-txt': {
-        rawValue: true,
-        scoreDisplayMode: 'not-applicable',
+        score: true,
       },
     },
   },
   {
-    requestedUrl: BASE_URL + 'seo-failure-cases.html?' + failureHeaders,
-    finalUrl: BASE_URL + 'seo-failure-cases.html?' + failureHeaders,
+    initialUrl: BASE_URL + 'seo-failure-cases.html?status_code=403&' + failureHeaders,
+    url: BASE_URL + 'seo-failure-cases.html?status_code=403&' + failureHeaders,
     audits: {
       'viewport': {
-        score: 0,
+        score: false,
       },
       'document-title': {
-        score: 0,
+        score: false,
+        extendedInfo: {
+          value: {
+            id: 'document-title',
+          },
+        },
       },
       'meta-description': {
-        score: 0,
+        score: false,
       },
       'http-status-code': {
-        score: 1,
+        score: false,
+        displayValue: '403',
       },
       'font-size': {
         rawValue: false,
-        explanation: 'Text is illegible because of a missing viewport config',
+        debugString: 'Text is illegible because of a missing viewport config',
       },
       'link-text': {
-        score: 0,
-        displayValue: '4 links found',
+        score: false,
+        displayValue: '3 links found',
         details: {
           items: {
-            length: 4,
+            length: 3,
           },
         },
       },
       'is-crawlable': {
-        score: 0,
+        score: false,
         details: {
           items: {
             length: 2,
@@ -115,7 +112,7 @@ module.exports = [
         },
       },
       'hreflang': {
-        score: 0,
+        score: false,
         details: {
           items: {
             length: 3,
@@ -123,7 +120,7 @@ module.exports = [
         },
       },
       'plugins': {
-        score: 0,
+        score: false,
         details: {
           items: {
             length: 3,
@@ -131,46 +128,8 @@ module.exports = [
         },
       },
       'canonical': {
-        score: 0,
-        explanation: 'Multiple conflicting URLs (https://example.com, https://example.com/)',
-      },
-    },
-  },
-  {
-    // Note: most scores are null (audit error) because the page 403ed.
-    requestedUrl: BASE_URL + 'seo-failure-cases.html?status_code=403',
-    finalUrl: BASE_URL + 'seo-failure-cases.html?status_code=403',
-    audits: {
-      'http-status-code': {
-        score: 0,
-        displayValue: '403',
-      },
-      'viewport': {
-        score: null,
-      },
-      'document-title': {
-        score: null,
-      },
-      'meta-description': {
-        score: null,
-      },
-      'font-size': {
-        score: null,
-      },
-      'link-text': {
-        score: null,
-      },
-      'is-crawlable': {
-        score: null,
-      },
-      'hreflang': {
-        score: null,
-      },
-      'plugins': {
-        score: null,
-      },
-      'canonical': {
-        score: null,
+        score: false,
+        debugString: 'Multiple URLs (https://example.com, https://example.com/)',
       },
     },
   },

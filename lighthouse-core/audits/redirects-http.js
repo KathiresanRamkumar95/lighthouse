@@ -9,26 +9,27 @@ const Audit = require('./audit');
 
 class RedirectsHTTP extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'redirects-http',
-      title: 'Redirects HTTP traffic to HTTPS',
-      failureTitle: 'Does not redirect HTTP traffic to HTTPS',
-      description: 'If you\'ve already set up HTTPS, make sure that you redirect all HTTP ' +
-         'traffic to HTTPS. [Learn more](https://developers.google.com/web/tools/lighthouse/audits/http-redirects-to-https).',
+      name: 'redirects-http',
+      description: 'Redirects HTTP traffic to HTTPS',
+      failureDescription: 'Does not redirect HTTP traffic to HTTPS',
+      helpText: 'If you\'ve already set up HTTPS, make sure that you redirect all HTTP traffic ' +
+         'to HTTPS. [Learn more](https://developers.google.com/web/tools/lighthouse/audits/http-redirects-to-https).',
       requiredArtifacts: ['HTTPRedirect'],
     };
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @return {LH.Audit.Product}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
   static audit(artifacts) {
     return {
       rawValue: artifacts.HTTPRedirect.value,
+      debugString: artifacts.HTTPRedirect.debugString,
     };
   }
 }

@@ -9,55 +9,36 @@ const Audit = require('./audit');
 
 class ContentWidth extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'content-width',
-      title: 'Content is sized correctly for the viewport',
-      failureTitle: 'Content is not sized correctly for the viewport',
-      description: 'If the width of your app\'s content doesn\'t match the width ' +
+      name: 'content-width',
+      description: 'Content is sized correctly for the viewport',
+      failureDescription: 'Content is not sized correctly for the viewport',
+      helpText: 'If the width of your app\'s content doesn\'t match the width ' +
           'of the viewport, your app might not be optimized for mobile screens. ' +
           '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/content-sized-correctly-for-viewport).',
-      requiredArtifacts: ['ViewportDimensions', 'HostUserAgent'],
+      requiredArtifacts: ['ViewportDimensions'],
     };
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @param {LH.Audit.Context} context
-   * @return {LH.Audit.Product}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
-  static audit(artifacts, context) {
-    const userAgent = artifacts.HostUserAgent;
+  static audit(artifacts) {
     const viewportWidth = artifacts.ViewportDimensions.innerWidth;
     const windowWidth = artifacts.ViewportDimensions.outerWidth;
     const widthsMatch = viewportWidth === windowWidth;
 
-    // TODO(phulce): refactor this `isMobile` boolean to be on context
-    const isMobileHost = userAgent.includes('Android') || userAgent.includes('Mobile');
-    const isMobile = context.settings.emulatedFormFactor === 'mobile' ||
-      (context.settings.emulatedFormFactor !== 'desktop' && isMobileHost);
-
-    if (isMobile) {
-      return {
-        rawValue: widthsMatch,
-        explanation: this.createExplanation(widthsMatch, artifacts.ViewportDimensions),
-      };
-    } else {
-      return {
-        rawValue: true,
-        notApplicable: true,
-      };
-    }
+    return {
+      rawValue: widthsMatch,
+      debugString: this.createDebugString(widthsMatch, artifacts.ViewportDimensions),
+    };
   }
 
-  /**
-   * @param {boolean} match
-   * @param {LH.Artifacts.ViewportDimensions} artifact
-   * @return {string}
-   */
-  static createExplanation(match, artifact) {
+  static createDebugString(match, artifact) {
     if (match) {
       return '';
     }

@@ -9,25 +9,17 @@ const Gatherer = require('./gatherer');
 const URL = require('../../lib/url-shim');
 
 class Offline extends Gatherer {
-  /**
-   * @param {LH.Gatherer.PassContext} passContext
-   */
-  beforePass(passContext) {
-    return passContext.driver.goOffline();
+  beforePass(options) {
+    return options.driver.goOffline();
   }
 
-  /**
-   * @param {LH.Gatherer.PassContext} passContext
-   * @param {LH.Gatherer.LoadData} loadData
-   * @return {Promise<LH.Artifacts['Offline']>}
-   */
-  afterPass(passContext, loadData) {
-    const navigationRecord = loadData.networkRecords.filter(record => {
-      return URL.equalWithExcludedFragments(record.url, passContext.url) &&
-        record.fetchedViaServiceWorker;
+  afterPass(options, tracingData) {
+    const navigationRecord = tracingData.networkRecords.filter(record => {
+      return URL.equalWithExcludedFragments(record._url, options.url) &&
+        record._fetchedViaServiceWorker;
     }).pop(); // Take the last record that matches.
 
-    return passContext.driver.goOnline(passContext)
+    return options.driver.goOnline(options)
       .then(_ => navigationRecord ? navigationRecord.statusCode : -1);
   }
 }

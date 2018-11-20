@@ -9,10 +9,7 @@
 
 const Gatherer = require('./gatherer');
 
-/**
- * This is run in the page, not Lighthouse itself.
- * @return {Promise<Array<string>>}
- */
+// This is run in the page, not Lighthouse itself.
 /* istanbul ignore next */
 function getCacheContents() {
   // Get every cache by name.
@@ -22,7 +19,6 @@ function getCacheContents() {
       .then(cacheNames => Promise.all(cacheNames.map(cacheName => caches.open(cacheName))))
 
       .then(caches => {
-        /** @type {Array<string>} */
         const requests = [];
 
         // Take each cache and get any requests is contains, and bounce each one down to its URL.
@@ -40,19 +36,20 @@ function getCacheContents() {
 class CacheContents extends Gatherer {
   /**
    * Creates an array of cached URLs.
-   * @param {LH.Gatherer.PassContext} passContext
-   * @return {Promise<LH.Artifacts['CacheContents']>}
+   * @param {!Object} options
+   * @return {!Promise<!Array<string>>}
    */
-  async afterPass(passContext) {
-    const driver = passContext.driver;
+  afterPass(options) {
+    const driver = options.driver;
 
-    /** @type {Array<string>|void} */
-    const cacheUrls = await driver.evaluateAsync(`(${getCacheContents.toString()}())`);
-    if (!cacheUrls || !Array.isArray(cacheUrls)) {
-      throw new Error('Unable to retrieve cache contents');
-    }
-
-    return cacheUrls;
+    return driver
+        .evaluateAsync(`(${getCacheContents.toString()}())`)
+        .then(returnedValue => {
+          if (!returnedValue || !Array.isArray(returnedValue)) {
+            throw new Error('Unable to retrieve cache contents');
+          }
+          return returnedValue;
+        });
   }
 }
 

@@ -35,7 +35,6 @@ const SOURCE_PARAMS = new Set([
 /**
  * Verifies if given MIME type matches any known plugin MIME type
  * @param {string} type
- * @return {boolean}
  */
 function isPluginType(type) {
   type = type.trim().toLowerCase();
@@ -48,7 +47,6 @@ function isPluginType(type) {
 /**
  * Verifies if given url points to a file that has a known plugin extension
  * @param {string} url
- * @return {boolean}
  */
 function isPluginURL(url) {
   try {
@@ -56,11 +54,7 @@ function isPluginURL(url) {
     const filePath = new URL(url, 'http://example.com').pathname;
     const parts = filePath.split('.');
 
-    if (parts.length < 2) {
-      return false;
-    }
-    const part = /** @type {string} */(parts.pop());
-    return FILE_EXTENSION_BLOCKLIST.has(part.trim().toLowerCase());
+    return parts.length > 1 && FILE_EXTENSION_BLOCKLIST.has(parts.pop().trim().toLowerCase());
   } catch (e) {
     return false;
   }
@@ -68,23 +62,22 @@ function isPluginURL(url) {
 
 class Plugins extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'plugins',
-      title: 'Document avoids plugins',
-      failureTitle: 'Document uses plugins',
-      description: 'Search engines can\'t index plugin content, and ' +
-        'many devices restrict plugins or don\'t support them. ' +
-        '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/plugins).',
+      name: 'plugins',
+      description: 'Document avoids plugins',
+      failureDescription: 'Document uses plugins',
+      helpText: 'Most mobile devices do not support plugins, and many desktop browsers restrict ' +
+      'them.',
       requiredArtifacts: ['EmbeddedContent'],
     };
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @return {LH.Audit.Product}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
   static audit(artifacts) {
     const plugins = artifacts.EmbeddedContent
@@ -118,9 +111,7 @@ class Plugins extends Audit {
       })
       .map(plugin => {
         const tagName = plugin.tagName.toLowerCase();
-        /** @type {Array<keyof LH.Artifacts.EmbeddedContentInfo>} */
-        const attributeKeys = ['src', 'data', 'code', 'type'];
-        const attributes = attributeKeys
+        const attributes = ['src', 'data', 'code', 'type']
           .reduce((result, attr) => {
             if (plugin[attr] !== null) {
               result += ` ${attr}="${plugin[attr]}"`;
@@ -134,7 +125,7 @@ class Plugins extends Audit {
 
         return {
           source: {
-            type: /** @type {'node'} */ ('node'),
+            type: 'node',
             snippet: `<${tagName}${attributes}>${params}</${tagName}>`,
           },
         };

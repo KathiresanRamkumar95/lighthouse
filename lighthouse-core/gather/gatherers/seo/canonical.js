@@ -9,11 +9,11 @@ const Gatherer = require('../gatherer');
 
 class Canonical extends Gatherer {
   /**
-   * @param {LH.Gatherer.PassContext} passContext
-   * @return {Promise<LH.Artifacts['Canonical']>}
+   * @param {{driver: !Object}} options Run options
+   * @return {!Promise<!Array<string>>} Href value of link[rel=canonical] node found in HEAD, or null
    */
-  afterPass(passContext) {
-    const driver = passContext.driver;
+  afterPass(options) {
+    const driver = options.driver;
 
     return driver.querySelectorAll('head link[rel="canonical" i]')
       .then(nodes => Promise.all(nodes.map(node => node.getAttribute('href'))));

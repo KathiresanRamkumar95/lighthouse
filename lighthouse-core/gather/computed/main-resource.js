@@ -5,33 +5,45 @@
  */
 'use strict';
 
-const makeComputedArtifact = require('./new-computed-artifact.js');
-const URL = require('../../lib/url-shim');
-const NetworkRecords = require('./network-records.js');
+const ComputedArtifact = require('./computed-artifact');
+const HTTP_REDIRECT_CODE_LOW = 300;
+const HTTP_REDIRECT_CODE_HIGH = 399;
 
 /**
  * @fileoverview This artifact identifies the main resource on the page. Current solution assumes
  * that the main resource is the first non-rediected one.
  */
-class MainResource {
+class MainResource extends ComputedArtifact {
+  get name() {
+    return 'MainResource';
+  }
+
   /**
-   * @param {{URL: LH.Artifacts['URL'], devtoolsLog: LH.DevtoolsLog}} data
-   * @param {LH.Audit.Context} context
-   * @return {Promise<LH.Artifacts.NetworkRequest>}
+   * @param {WebInspector.NetworkRequest} record
+   * @return {boolean}
    */
-  static async compute_(data, context) {
-    const finalUrl = data.URL.finalUrl;
-    const requests = await NetworkRecords.request(data.devtoolsLog, context);
-    // equalWithExcludedFragments is expensive, so check that the finalUrl starts with the request first
-    const mainResource = requests.find(request => finalUrl.startsWith(request.url) &&
-      URL.equalWithExcludedFragments(request.url, finalUrl));
+  isMainResource(request) {
+    return request.statusCode < HTTP_REDIRECT_CODE_LOW ||
+      request.statusCode > HTTP_REDIRECT_CODE_HIGH;
+  }
 
-    if (!mainResource) {
-      throw new Error('Unable to identify the main resource');
-    }
+  /**
+   * @param {!DevtoolsLog} devtoolsLog
+   * @param {!ComputedArtifacts} artifacts
+   * @return {!WebInspector.NetworkRequest}
+   */
+  compute_(devtoolsLog, artifacts) {
+    return artifacts.requestNetworkRecords(devtoolsLog)
+      .then(requests => {
+        const mainResource = requests.find(this.isMainResource);
 
-    return mainResource;
+        if (!mainResource) {
+          throw new Error('Unable to identify the main resource');
+        }
+
+        return mainResource;
+      });
   }
 }
 
-module.exports = makeComputedArtifact(MainResource);
+module.exports = MainResource;
