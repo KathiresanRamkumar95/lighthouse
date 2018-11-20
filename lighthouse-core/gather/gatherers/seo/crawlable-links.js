@@ -6,37 +6,26 @@
 'use strict';
 
 const Gatherer = require('../gatherer');
-const pageFunctions = require('../../../lib/page-functions.js');
+const DOMHelpers = require('../../../lib/dom-helpers.js');
 
 class CrawlableLinks extends Gatherer {
   /**
-   * @param {LH.Gatherer.PassContext} passContext
-   * @return {Promise<LH.Artifacts['CrawlableLinks']>}
+   * @param {{driver: !Object}} options Run options
+   * @return {!Promise<!Array<{href: string, text: string}>>}
    */
-  async afterPass(passContext) {
+  afterPass(options) {
     const expression = `(function() {
-      ${pageFunctions.getElementsInDocumentString}; // define function on page
-      const resolveURLOrNull = url => {
-        try { return new URL(url, window.location.href).href; }
-        catch (_) { return null; }
-      };
-
+      ${DOMHelpers.getElementsInDocumentFnString}; // define function on page
       const selector = 'a[href]:not([rel~="nofollow"])';
       const elements = getElementsInDocument(selector);
       return elements
         .map(node => ({
-          href: node.href instanceof SVGAnimatedString ?
-            resolveURLOrNull(node.href.baseVal) :
-            node.href,
-          text: node.href instanceof SVGAnimatedString ?
-            node.textContent :
-            node.innerText,
+          href: node.href,
+          text: node.innerText
         }));
     })()`;
 
-    /** @type {LH.Artifacts['CrawlableLinks']} */
-    const links = await passContext.driver.evaluateAsync(expression, {useIsolation: true});
-    return links.filter(link => typeof link.href === 'string' && link.href);
+    return options.driver.evaluateAsync(expression);
   }
 }
 

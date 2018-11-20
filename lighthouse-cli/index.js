@@ -6,4 +6,4 @@
  */
 'use strict';
 
-require('./bin.js').begin();
+require('./bin.js').run();

@@ -31,17 +31,14 @@ We follow [semver](https://semver.org/) versioning semantics (`vMajor.Minor.Patc
 ## Release Process
 
 ```sh
-# use a custom lighthouse-pristine checkout to make sure your dev files aren't involved.
-
-# * Install the latest.*
-yarn
+# * Install the latest. This also builds the cli, extension, and viewer *
+yarn install-all
 
 # * Bump it *
 yarn version --no-git-tag-version
-# manually bump extension v in clients/extension/manifest.json
-yarn update:sample-json
+# then manually bump extension v in extension/app/manifest.json
 
-# * Build it. This also builds the cli, extension, and viewer. *
+# * Build it *
 yarn build-all
 
 # * Test err'thing *
@@ -53,25 +50,24 @@ echo "Test the extension"
 # ...
 
 echo "Test a fresh local install"
-# (starting from lighthouse-pristine root...)
-npm pack
-cd ..; rm -rf tmp; mkdir tmp; cd tmp
-npm init -y
-npm install ../lighthouse-pristine/lighthouse-*.tgz
-npm explore lighthouse -- npm run smoke
-npm explore lighthouse -- npm run chrome # try the manual launcher
-npm explore lighthouse -- npm run fast -- http://example.com
-cd ..; rm -rf ./tmp;
+# (starting from lighthouse root...)
+# npm pack
+# cd ..; rm -rf tmp; mkdir tmp; cd tmp
+# npm init -y
+# npm install ../lighthouse/lighthouse-<version>.tgz
+# npm explore lighthouse -- npm run smoke
+# npm explore lighthouse -- npm run smokehouse
+# npm explore lighthouse -- npm run chrome # try the manual launcher
+# npm explore lighthouse -- npm run fast -- http://example.com
+# cd ..; rm -rf ./tmp;
 
-cd ../lighthouse-pristine; command rm -f lighthouse-*.tgz
+# delete that lighthouse-<version>.tgz
 
 echo "Test the lighthouse-viewer build"
 # Manual test for now:
-# Start a server in dist/viewer/ and open the page in a tab. You should see the viewer.
+# Start a server in lighthouse-viewer/dist/ and open the page in a tab. You should see the viewer.
 # Drop in a results.json or paste an existing gist url (e.g. https://gist.github.com/ebidel/b9fd478b5f40bf5fab174439dc18f83a).
 # Check for errors!
-cd dist/viewer ; python -m SimpleHTTPServer
-# go to http://localhost:8000/
 
 # * Update changelog *
 git fetch --tags
@@ -93,22 +89,15 @@ git push --tags
 
 # * Deploy-time *
 echo "Rebuild extension and viewer to get the latest, tagged master commit"
-yarn build-all;
+yarn build-viewer; yarn build-extension;
 
-# zip the extension files
-node build/build-extension.js package; cd dist/extension-package/
+cd lighthouse-extension; gulp package; cd ..
 echo "Go here: https://chrome.google.com/webstore/developer/edit/blipmdconlkpinefehnmjammfjpmpbjk "
 echo "Upload the package zip to CWS dev dashboard"
-# Be in lighthouse-extension-owners group
-# Open <https://chrome.google.com/webstore/developer/dashboard>
-# Click _Edit_ on lighthouse
-# _Upload Updated Package_
-# Select `lighthouse-4.X.X.zip`
-# _Publish_ at the bottom
 
 echo "Verify the npm package won't include unncessary files"
-npm pack --dry-run
-npx pkgfiles
+yarn global add irish-pub pkgfiles
+irish-pub; pkgfiles;
 
 echo "ship it"
 npm publish
@@ -116,4 +105,34 @@ yarn deploy-viewer
 
 # * Tell the world!!! *
 echo "Complete the _Release publicity_ tasks documented above"
+```
+
+### Extension Canary release
+
+```sh
+# Pull latest in a clean non-dev clone.
+
+yarn install-all
+
+# Update manifest_canary.json w/ version bumps.
+
+# branch and commit
+git commmit -m "bump extension canary to 2.0.0.X"
+
+npm version prerelease # this will commit
+
+
+# overwrite extension's manifest w/ manifest_canary.
+
+yarn build-all
+
+cd lighthouse-extension/
+gulp package
+# upload zip to CWS and publish
+
+# verify you build-all'd for the typescript compile
+# ...
+
+# publish to canary tag!
+npm publish --tag canary
 ```

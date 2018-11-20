@@ -6,18 +6,7 @@
 'use strict';
 
 const ByteEfficiencyAudit = require('./byte-efficiency-audit');
-const i18n = require('../../lib/i18n/i18n.js');
-const computeTokenLength = require('../../lib/minification-estimator').computeJSTokenLength;
-
-const UIStrings = {
-  /** Imperative title of a Lighthouse audit that tells the user to minify the page’s JS code to reduce file size. This is displayed in a list of audit titles that Lighthouse generates. */
-  title: 'Minify JavaScript',
-  /** Description of a Lighthouse audit that tells the user *why* they should minify the page’s JS code to reduce file size. This is displayed after a user expands the section to see more. No character length limits. 'Learn More' becomes link text to additional documentation. */
-  description: 'Minifying JavaScript files can reduce payload sizes and script parse time. ' +
-    '[Learn more](https://developers.google.com/speed/docs/insights/MinifyResources).',
-};
-
-const str_ = i18n.createMessageInstanceIdFn(__filename, UIStrings);
+const esprima = require('esprima');
 
 const IGNORE_THRESHOLD_IN_PERCENT = 10;
 const IGNORE_THRESHOLD_IN_BYTES = 2048;
@@ -34,29 +23,38 @@ const IGNORE_THRESHOLD_IN_BYTES = 2048;
  */
 class UnminifiedJavaScript extends ByteEfficiencyAudit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'unminified-javascript',
-      title: str_(UIStrings.title),
-      description: str_(UIStrings.description),
-      scoreDisplayMode: ByteEfficiencyAudit.SCORING_MODES.NUMERIC,
-      requiredArtifacts: ['Scripts', 'devtoolsLogs', 'traces'],
+      name: 'unminified-javascript',
+      description: 'Minify JavaScript',
+      informative: true,
+      helpText: 'Minifying JavaScript files can reduce payload sizes and script parse time. ' +
+        '[Learn more](https://developers.google.com/speed/docs/insights/MinifyResources).',
+      requiredArtifacts: ['Scripts', 'devtoolsLogs'],
     };
   }
 
   /**
    * @param {string} scriptContent
-   * @param {LH.Artifacts.NetworkRequest} networkRecord
-   * @return {{url: string, totalBytes: number, wastedBytes: number, wastedPercent: number}}
+   * @return {{minifiedLength: number, contentLength: number}}
    */
   static computeWaste(scriptContent, networkRecord) {
     const contentLength = scriptContent.length;
-    const totalTokenLength = computeTokenLength(scriptContent);
+    let totalTokenLength = 0;
+
+    const tokens = esprima.tokenize(scriptContent, {tolerant: true});
+    if (!tokens.length && tokens.errors && tokens.errors.length) {
+      throw tokens.errors[0];
+    }
+
+    for (const token of tokens) {
+      totalTokenLength += token.value.length;
+    }
 
     const totalBytes = ByteEfficiencyAudit.estimateTransferSize(networkRecord, contentLength,
-      'Script');
+      'script');
     const wastedRatio = 1 - totalTokenLength / contentLength;
     const wastedBytes = Math.round(totalBytes * wastedRatio);
 
@@ -69,14 +67,12 @@ class UnminifiedJavaScript extends ByteEfficiencyAudit {
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @param {Array<LH.Artifacts.NetworkRequest>} networkRecords
-   * @return {ByteEfficiencyAudit.ByteEfficiencyProduct}
+   * @param {!Artifacts} artifacts
+   * @return {!Audit.HeadingsResult}
    */
   static audit_(artifacts, networkRecords) {
-    /** @type {Array<LH.Audit.ByteEfficiencyItem>} */
-    const items = [];
-    const warnings = [];
+    const results = [];
+    let debugString;
     for (const requestId of Object.keys(artifacts.Scripts)) {
       const scriptContent = artifacts.Scripts[requestId];
       const networkRecord = networkRecords.find(record => record.requestId === requestId);
@@ -87,28 +83,23 @@ class UnminifiedJavaScript extends ByteEfficiencyAudit {
         // If the ratio is minimal, the file is likely already minified, so ignore it.
         // If the total number of bytes to be saved is quite small, it's also safe to ignore.
         if (result.wastedPercent < IGNORE_THRESHOLD_IN_PERCENT ||
-          result.wastedBytes < IGNORE_THRESHOLD_IN_BYTES ||
-          !Number.isFinite(result.wastedBytes)) continue;
-        items.push(result);
+          result.wastedBytes < IGNORE_THRESHOLD_IN_BYTES) continue;
+        results.push(result);
       } catch (err) {
-        warnings.push(`Unable to process ${networkRecord.url}: ${err.message}`);
+        debugString = `Unable to process ${networkRecord._url}: ${err.message}`;
       }
     }
 
-    /** @type {LH.Result.Audit.OpportunityDetails['headings']} */
-    const headings = [
-      {key: 'url', valueType: 'url', label: str_(i18n.UIStrings.columnURL)},
-      {key: 'totalBytes', valueType: 'bytes', label: str_(i18n.UIStrings.columnSize)},
-      {key: 'wastedBytes', valueType: 'bytes', label: str_(i18n.UIStrings.columnWastedBytes)},
-    ];
-
     return {
-      items,
-      warnings,
-      headings,
+      results,
+      debugString,
+      headings: [
+        {key: 'url', itemType: 'url', text: 'URL'},
+        {key: 'totalKb', itemType: 'text', text: 'Original'},
+        {key: 'potentialSavings', itemType: 'text', text: 'Potential Savings'},
+      ],
     };
   }
 }
 
 module.exports = UnminifiedJavaScript;
-module.exports.UIStrings = UIStrings;

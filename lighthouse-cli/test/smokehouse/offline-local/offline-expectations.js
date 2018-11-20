@@ -12,147 +12,127 @@
  */
 module.exports = [
   {
-    requestedUrl: 'http://localhost:10200/online-only.html',
-    finalUrl: 'http://localhost:10200/online-only.html',
+    initialUrl: 'http://localhost:10200/online-only.html',
+    url: 'http://localhost:10200/online-only.html',
     audits: {
       'is-on-https': {
-        score: 1,
-      },
-      'uses-http2': {
-        score: 0,
-      },
-      'external-anchors-use-rel-noopener': {
-        score: 1,
-      },
-      'appcache-manifest': {
-        score: 1,
-      },
-      'geolocation-on-start': {
-        score: 1,
-      },
-      'render-blocking-resources': {
-        score: 1,
-      },
-      'no-document-write': {
-        score: 1,
-      },
-      'uses-passive-event-listeners': {
-        score: 1,
-      },
-      'password-inputs-can-be-pasted-into': {
-        score: 1,
+        score: true,
       },
       'redirects-http': {
-        score: 0,
+        score: false,
       },
       'service-worker': {
-        score: 0,
+        score: false,
       },
       'works-offline': {
-        score: 0,
+        score: false,
       },
       'viewport': {
-        score: 1,
+        score: true,
       },
       'without-javascript': {
-        score: 1,
+        score: true,
       },
       'user-timings': {
-        scoreDisplayMode: 'not-applicable',
+        score: true,
+        displayValue: '0',
       },
       'critical-request-chains': {
-        scoreDisplayMode: 'not-applicable',
+        score: true,
+        displayValue: '0',
       },
       'webapp-install-banner': {
-        score: 0,
+        score: false,
       },
       'splash-screen': {
-        score: 0,
+        score: false,
       },
       'themed-omnibox': {
-        score: 0,
+        score: false,
       },
       'aria-valid-attr': {
-        scoreDisplayMode: 'not-applicable',
+        notApplicable: true,
       },
       'aria-allowed-attr': {
-        scoreDisplayMode: 'not-applicable',
+        notApplicable: true,
       },
       'color-contrast': {
-        score: 1,
+        score: true,
       },
       'image-alt': {
-        scoreDisplayMode: 'not-applicable',
+        notApplicable: true,
       },
       'label': {
-        scoreDisplayMode: 'not-applicable',
+        notApplicable: true,
       },
       'tabindex': {
-        scoreDisplayMode: 'not-applicable',
+        notApplicable: true,
       },
       'content-width': {
-        score: 1,
+        score: true,
       },
     },
   },
 
   {
-    requestedUrl: 'http://localhost:10503/offline-ready.html',
-    finalUrl: 'http://localhost:10503/offline-ready.html',
+    initialUrl: 'http://localhost:10503/offline-ready.html',
+    url: 'http://localhost:10503/offline-ready.html',
     audits: {
       'is-on-https': {
-        score: 1,
+        score: true,
       },
       'redirects-http': {
-        score: 0,
+        score: false,
       },
       'service-worker': {
-        score: 1,
+        score: true,
       },
       'works-offline': {
-        score: 1,
+        score: true,
       },
       'viewport': {
-        score: 1,
+        score: true,
       },
       'without-javascript': {
-        score: 1,
+        score: true,
       },
       'user-timings': {
-        scoreDisplayMode: 'not-applicable',
+        score: true,
+        displayValue: '0',
       },
       'critical-request-chains': {
-        scoreDisplayMode: 'not-applicable',
+        score: true,
+        displayValue: '0',
       },
       'webapp-install-banner': {
-        score: 1,
+        score: false,
       },
       'splash-screen': {
-        score: 0,
+        score: false,
       },
       'themed-omnibox': {
-        score: 0,
+        score: false,
       },
       'aria-valid-attr': {
-        scoreDisplayMode: 'not-applicable',
+        notApplicable: true,
       },
       'aria-allowed-attr': {
-        scoreDisplayMode: 'not-applicable',
+        notApplicable: true,
       },
       'color-contrast': {
-        score: 1,
+        score: true,
       },
       'image-alt': {
-        score: 0,
+        score: false,
       },
       'label': {
-        scoreDisplayMode: 'not-applicable',
+        notApplicable: true,
       },
       'tabindex': {
-        scoreDisplayMode: 'not-applicable',
+        notApplicable: true,
       },
       'content-width': {
-        score: 1,
+        score: true,
       },
     },
   },

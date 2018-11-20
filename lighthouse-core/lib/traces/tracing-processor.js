@@ -8,33 +8,10 @@
 // The ideal input response latency, the time between the input task and the
 // first frame of the response.
 const BASE_RESPONSE_LATENCY = 16;
-// m71+ We added RunTask to `disabled-by-default-lighthouse`
-const SCHEDULABLE_TASK_TITLE_LH = 'RunTask';
-// m69-70 DoWork is different and we now need RunTask, see https://bugs.chromium.org/p/chromium/issues/detail?id=871204#c11
-const SCHEDULABLE_TASK_TITLE_ALT1 = 'ThreadControllerImpl::RunTask';
-// In m66-68 refactored to this task title, https://crrev.com/c/883346
-const SCHEDULABLE_TASK_TITLE_ALT2 = 'ThreadControllerImpl::DoWork';
-// m65 and earlier
-const SCHEDULABLE_TASK_TITLE_ALT3 = 'TaskQueueManager::ProcessTaskFromWorkQueue';
-
-
-const LHError = require('../lh-error');
+const SCHEDULABLE_TASK_TITLE = 'TaskQueueManager::ProcessTaskFromWorkQueue';
+const SCHEDULABLE_TASK_TITLE_ALT = 'ThreadControllerImpl::DoWork';
 
 class TraceProcessor {
-  /**
-   * There should *always* be at least one top level event, having 0 typically means something is
-   * drastically wrong with the trace and we should just give up early and loudly.
-   *
-   * @param {LH.TraceEvent[]} events
-   */
-  static assertHasToplevelEvents(events) {
-    const hasToplevelTask = events.some(TraceProcessor.isScheduleableTask);
-    if (!hasToplevelTask) {
-      throw new Error('Could not find any top level events');
-    }
-  }
-
-
   /**
    * Calculate duration at specified percentiles for given population of
    * durations.
@@ -107,44 +84,41 @@ class TraceProcessor {
    * Calculates the maximum queueing time (in ms) of high priority tasks for
    * selected percentiles within a window of the main thread.
    * @see https://docs.google.com/document/d/1b9slyaB9yho91YTOkAQfpCdULFkZM9LqsipcX3t7He8/preview
-   * @param {Array<ToplevelEvent>} events
-   * @param {number} startTime Start time (in ms relative to navstart) of range of interest.
-   * @param {number} endTime End time (in ms relative to navstart) of range of interest.
+   * @param {!TraceOfTabArtifact} tabTrace
+   * @param {number=} startTime Optional start time (in ms relative to navstart) of range of interest. Defaults to navstart.
+   * @param {number=} endTime Optional end time (in ms relative to navstart) of range of interest. Defaults to trace end.
    * @param {!Array<number>=} percentiles Optional array of percentiles to compute. Defaults to [0.5, 0.75, 0.9, 0.99, 1].
    * @return {!Array<{percentile: number, time: number}>}
    */
   static getRiskToResponsiveness(
-      events,
-      startTime,
-      endTime,
+      tabTrace,
+      startTime = 0,
+      endTime = tabTrace.timings.traceEnd,
       percentiles = [0.5, 0.75, 0.9, 0.99, 1]
   ) {
     const totalTime = endTime - startTime;
     percentiles.sort((a, b) => a - b);
 
-    const ret = TraceProcessor.getMainThreadTopLevelEventDurations(events, startTime, endTime);
+    const ret = TraceProcessor.getMainThreadTopLevelEventDurations(tabTrace, startTime, endTime);
     return TraceProcessor._riskPercentiles(ret.durations, totalTime, percentiles,
         ret.clippedLength);
   }
 
   /**
    * Provides durations in ms of all main thread top-level events
-   * @param {Array<ToplevelEvent>} topLevelEvents
+   * @param {!TraceOfTabArtifact} tabTrace
    * @param {number} startTime Optional start time (in ms relative to navstart) of range of interest. Defaults to navstart.
    * @param {number} endTime Optional end time (in ms relative to navstart) of range of interest. Defaults to trace end.
-   * @return {{durations: Array<number>, clippedLength: number}}
+   * @return {{durations: !Array<number>, clippedLength: number}}
    */
-  static getMainThreadTopLevelEventDurations(topLevelEvents, startTime = 0, endTime = Infinity) {
+  static getMainThreadTopLevelEventDurations(tabTrace, startTime = 0, endTime = Infinity) {
+    const topLevelEvents = TraceProcessor.getMainThreadTopLevelEvents(tabTrace, startTime, endTime);
+
     // Find durations of all slices in range of interest.
-    /** @type {Array<number>} */
     const durations = [];
     let clippedLength = 0;
 
-    for (const event of topLevelEvents) {
-      if (event.end < startTime || event.start > endTime) {
-        continue;
-      }
-
+    topLevelEvents.forEach(event => {
       let duration = event.duration;
       let eventStart = event.start;
       if (eventStart < startTime) {
@@ -159,7 +133,7 @@ class TraceProcessor {
       }
 
       durations.push(duration);
-    }
+    });
     durations.sort((a, b) => a - b);
 
     return {
@@ -171,10 +145,10 @@ class TraceProcessor {
   /**
    * Provides the top level events on the main thread with timestamps in ms relative to navigation
    * start.
-   * @param {LH.Artifacts.TraceOfTab} tabTrace
+   * @param {!TraceOfTabArtifact} tabTrace
    * @param {number=} startTime Optional start time (in ms relative to navstart) of range of interest. Defaults to navstart.
    * @param {number=} endTime Optional end time (in ms relative to navstart) of range of interest. Defaults to trace end.
-   * @return {Array<ToplevelEvent>}
+   * @return {!Array<{start: number, end: number, duration: number}>}
    */
   static getMainThreadTopLevelEvents(tabTrace, startTime = 0, endTime = Infinity) {
     const topLevelEvents = [];
@@ -193,70 +167,18 @@ class TraceProcessor {
       });
     }
 
+    // There should *always* be at least one top level event, having 0 typically means something is
+    // drastically wrong with the trace and would should just give up early and loudly.
+    if (!topLevelEvents.length) {
+      throw new Error('Could not find any top level events');
+    }
+
     return topLevelEvents;
   }
 
-  /**
-   * @param {LH.TraceEvent[]} events
-   * @return {{pid: number, tid: number, frameId: string}}
-   */
-  static findMainFrameIds(events) {
-    // Prefer the newer TracingStartedInBrowser event first, if it exists
-    const startedInBrowserEvt = events.find(e => e.name === 'TracingStartedInBrowser');
-    if (startedInBrowserEvt && startedInBrowserEvt.args.data &&
-        startedInBrowserEvt.args.data.frames) {
-      const mainFrame = startedInBrowserEvt.args.data.frames.find(frame => !frame.parent);
-      const frameId = mainFrame && mainFrame.frame;
-      const pid = mainFrame && mainFrame.processId;
-
-      const threadNameEvt = events.find(e => e.pid === pid && e.ph === 'M' &&
-        e.cat === '__metadata' && e.name === 'thread_name' && e.args.name === 'CrRendererMain');
-      const tid = threadNameEvt && threadNameEvt.tid;
-
-      if (pid && tid && frameId) {
-        return {
-          pid,
-          tid,
-          frameId,
-        };
-      }
-    }
-
-    // Support legacy browser versions that do not emit TracingStartedInBrowser event.
-    // The first TracingStartedInPage in the trace is definitely our renderer thread of interest
-    // Beware: the tracingStartedInPage event can appear slightly after a navigationStart
-    const startedInPageEvt = events.find(e => e.name === 'TracingStartedInPage');
-    if (startedInPageEvt && startedInPageEvt.args && startedInPageEvt.args.data) {
-      const frameId = startedInPageEvt.args.data.page;
-      if (frameId) {
-        return {
-          pid: startedInPageEvt.pid,
-          tid: startedInPageEvt.tid,
-          frameId,
-        };
-      }
-    }
-
-    throw new LHError(LHError.errors.NO_TRACING_STARTED);
-  }
-
-  /**
-   * @param {LH.TraceEvent} evt
-   * @return {boolean}
-   */
   static isScheduleableTask(evt) {
-    return evt.name === SCHEDULABLE_TASK_TITLE_LH ||
-    evt.name === SCHEDULABLE_TASK_TITLE_ALT1 ||
-    evt.name === SCHEDULABLE_TASK_TITLE_ALT2 ||
-    evt.name === SCHEDULABLE_TASK_TITLE_ALT3;
+    return evt.name === SCHEDULABLE_TASK_TITLE || evt.name === SCHEDULABLE_TASK_TITLE_ALT;
   }
 }
-
-/**
- * @typedef ToplevelEvent
- * @prop {number} start
- * @prop {number} end
- * @prop {number} duration
- */
 
 module.exports = TraceProcessor;

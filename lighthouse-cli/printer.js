@@ -6,24 +6,22 @@
 'use strict';
 
 const fs = require('fs');
+const ReportGenerator = require('../lighthouse-core/report/v2/report-generator');
 const log = require('lighthouse-logger');
 
 /**
  * An enumeration of acceptable output modes:
  *   'json': JSON formatted results
  *   'html': An HTML report
- *   'csv': CSV formatted results
- * @type {SelfMap<LH.OutputMode>}
  */
 const OutputMode = {
   json: 'json',
   html: 'html',
-  csv: 'csv',
 };
 
 /**
  * Verify output path to use, either stdout or a file path.
- * @param {string} path
+ * @param {string=} path
  * @return {string}
  */
 function checkOutputPath(path) {
@@ -35,9 +33,27 @@ function checkOutputPath(path) {
 }
 
 /**
+ * Creates the results output in a format based on the `mode`.
+ * @param {!LH.Results} results
+ * @param {string} outputMode
+ * @return {string}
+ */
+function createOutput(results, outputMode) {
+  // HTML report.
+  if (outputMode === OutputMode.html) {
+    return new ReportGenerator().generateReportHtml(results);
+  }
+  // JSON report.
+  if (outputMode === OutputMode.json) {
+    return JSON.stringify(results, null, 2);
+  }
+  throw new Error('Invalid output mode: ' + outputMode);
+}
+
+/**
  * Writes the output to stdout.
  * @param {string} output
- * @return {Promise<void>}
+ * @return {!Promise<undefined>}
  */
 function writeToStdout(output) {
   return new Promise(resolve => {
@@ -53,8 +69,8 @@ function writeToStdout(output) {
  * Writes the output to a file.
  * @param {string} filePath
  * @param {string} output
- * @param {LH.OutputMode} outputMode
- * @return {Promise<void>}
+ * @param {string} outputMode
+ * @return {!Promise<undefined>}
  */
 function writeFile(filePath, output, outputMode) {
   return new Promise((resolve, reject) => {
@@ -70,22 +86,31 @@ function writeFile(filePath, output, outputMode) {
 }
 
 /**
- * Writes the output.
- * @param {string} output
- * @param {LH.OutputMode} mode
+ * Writes the results.
+ * @param {!LH.Results} results
+ * @param {string} mode
  * @param {string} path
- * @return {Promise<void>}
+ * @return {!Promise<!LH.Results>}
  */
-async function write(output, mode, path) {
-  const outputPath = checkOutputPath(path);
-  return outputPath === 'stdout' ?
-    writeToStdout(output) :
-    writeFile(outputPath, output, mode);
+function write(results, mode, path) {
+  return new Promise((resolve, reject) => {
+    const outputPath = checkOutputPath(path);
+    const output = createOutput(results, mode);
+
+    if (outputPath === 'stdout') {
+      return writeToStdout(output).then(_ => resolve(results));
+    }
+    return writeFile(outputPath, output, mode)
+      .then(_ => {
+        resolve(results);
+      })
+      .catch(err => reject(err));
+  });
 }
 
 /**
  * Returns a list of valid output options.
- * @return {Array<string>}
+ * @return {!Array<string>}
  */
 function getValidOutputOptions() {
   return Object.keys(OutputMode);
@@ -93,6 +118,7 @@ function getValidOutputOptions() {
 
 module.exports = {
   checkOutputPath,
+  createOutput,
   write,
   OutputMode,
   getValidOutputOptions,

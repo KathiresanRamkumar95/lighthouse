@@ -10,48 +10,49 @@ const Parser = require('metaviewport-parser');
 
 class Viewport extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'viewport',
-      title: 'Has a `<meta name="viewport">` tag with `width` or `initial-scale`',
-      failureTitle: 'Does not have a `<meta name="viewport">` tag with `width` ' +
+      name: 'viewport',
+      description: 'Has a `<meta name="viewport">` tag with `width` or `initial-scale`',
+      failureDescription: 'Does not have a `<meta name="viewport">` tag with `width` ' +
           'or `initial-scale`',
-      description: 'Add a viewport meta tag to optimize your app for mobile screens. ' +
+      helpText: 'Add a viewport meta tag to optimize your app for mobile screens. ' +
           '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/has-viewport-meta-tag).',
       requiredArtifacts: ['Viewport'],
     };
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @return {LH.Audit.Product}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
   static audit(artifacts) {
     if (artifacts.Viewport === null) {
       return {
-        explanation: 'No viewport meta tag found',
+        debugString: 'No viewport meta tag found',
         rawValue: false,
       };
     }
 
-    const warnings = [];
+    let debugString = '';
     const parsedProps = Parser.parseMetaViewPortContent(artifacts.Viewport);
 
     if (Object.keys(parsedProps.unknownProperties).length) {
-      warnings.push(`Invalid properties found: ${JSON.stringify(parsedProps.unknownProperties)}`);
+      debugString += `Invalid properties found: ${JSON.stringify(parsedProps.unknownProperties)}. `;
     }
     if (Object.keys(parsedProps.invalidValues).length) {
-      warnings.push(`Invalid values found: ${JSON.stringify(parsedProps.invalidValues)}`);
+      debugString += `Invalid values found: ${JSON.stringify(parsedProps.invalidValues)}. `;
     }
+    debugString = debugString.trim();
 
     const viewportProps = parsedProps.validProperties;
     const hasMobileViewport = viewportProps.width || viewportProps['initial-scale'];
 
     return {
       rawValue: !!hasMobileViewport,
-      warnings,
+      debugString,
     };
   }
 }

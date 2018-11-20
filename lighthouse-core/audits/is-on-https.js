@@ -7,22 +7,21 @@
 
 const Audit = require('./audit');
 const URL = require('../lib/url-shim');
-const Util = require('../report/html/renderer/util');
-const NetworkRecords = require('../gather/computed/network-records.js');
+const Util = require('../report/v2/renderer/util');
 
-const SECURE_SCHEMES = ['data', 'https', 'wss', 'blob', 'chrome', 'chrome-extension', 'about'];
+const SECURE_SCHEMES = ['data', 'https', 'wss', 'blob', 'chrome', 'chrome-extension'];
 const SECURE_DOMAINS = ['localhost', '127.0.0.1'];
 
 class HTTPS extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'is-on-https',
-      title: 'Uses HTTPS',
-      failureTitle: 'Does not use HTTPS',
-      description: 'All sites should be protected with HTTPS, even ones that don\'t handle ' +
+      name: 'is-on-https',
+      description: 'Uses HTTPS',
+      failureDescription: 'Does not use HTTPS',
+      helpText: 'All sites should be protected with HTTPS, even ones that don\'t handle ' +
           'sensitive data. HTTPS prevents intruders from tampering with or passively listening ' +
           'in on the communications between your app and your users, and is a prerequisite for ' +
           'HTTP/2 and many new web platform APIs. ' +
@@ -32,47 +31,44 @@ class HTTPS extends Audit {
   }
 
   /**
-   * @param {{parsedURL: {scheme: string, host: string}, protocol: string}} record
+   * @param {{scheme: string, domain: string}} record
    * @return {boolean}
    */
   static isSecureRecord(record) {
-    return SECURE_SCHEMES.includes(record.parsedURL.scheme) ||
+    return SECURE_SCHEMES.includes(record.scheme) ||
            SECURE_SCHEMES.includes(record.protocol) ||
-           SECURE_DOMAINS.includes(record.parsedURL.host);
+           SECURE_DOMAINS.includes(record.domain);
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @param {LH.Audit.Context} context
-   * @return {Promise<LH.Audit.Product>}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
-  static audit(artifacts, context) {
+  static audit(artifacts) {
     const devtoolsLogs = artifacts.devtoolsLogs[Audit.DEFAULT_PASS];
-    return NetworkRecords.request(devtoolsLogs, context).then(networkRecords => {
-      const insecureURLs = networkRecords
+    return artifacts.requestNetworkRecords(devtoolsLogs).then(networkRecords => {
+      const insecureRecords = networkRecords
           .filter(record => !HTTPS.isSecureRecord(record))
-          .map(record => URL.elideDataURI(record.url));
+          .map(record => ({url: URL.elideDataURI(record.url)}));
 
       let displayValue = '';
-      if (insecureURLs.length > 1) {
-        displayValue = `${Util.formatNumber(insecureURLs.length)} insecure requests found`;
-      } else if (insecureURLs.length === 1) {
-        displayValue = `${insecureURLs.length} insecure request found`;
+      if (insecureRecords.length > 1) {
+        displayValue = `${Util.formatNumber(insecureRecords.length)} insecure requests found`;
+      } else if (insecureRecords.length === 1) {
+        displayValue = `${insecureRecords.length} insecure request found`;
       }
 
-      const items = Array.from(new Set(insecureURLs)).map(url => ({url}));
-
-      const headings = [
-        {key: 'url', itemType: 'url', text: 'Insecure URL'},
-      ];
-
       return {
-        rawValue: items.length === 0,
+        rawValue: insecureRecords.length === 0,
         displayValue,
         extendedInfo: {
-          value: items,
+          value: insecureRecords,
         },
-        details: Audit.makeTableDetails(headings, items),
+        details: {
+          type: 'list',
+          header: {type: 'text', text: 'Insecure URLs:'},
+          items: insecureRecords.map(record => ({type: 'url', text: record.url})),
+        },
       };
     });
   }

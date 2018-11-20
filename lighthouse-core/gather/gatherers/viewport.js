@@ -9,14 +9,14 @@ const Gatherer = require('./gatherer');
 
 class Viewport extends Gatherer {
   /**
-   * @param {LH.Gatherer.PassContext} passContext
-   * @return {Promise<LH.Artifacts['Viewport']>} The value of the viewport meta's content attribute, or null
+   * @param {{driver: !Object}} options Run options
+   * @return {!Promise<?string>} The value of the viewport meta's content attribute, or null
    */
-  async afterPass(passContext) {
-    const driver = passContext.driver;
+  afterPass(options) {
+    const driver = options.driver;
 
-    const metaEl = await driver.querySelector('head meta[name="viewport" i]');
-    return metaEl && metaEl.getAttribute('content');
+    return driver.querySelector('head meta[name="viewport" i]')
+      .then(node => node && node.getAttribute('content'));
   }
 }
 

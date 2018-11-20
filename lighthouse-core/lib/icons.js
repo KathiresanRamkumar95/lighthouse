@@ -5,10 +5,8 @@
  */
 'use strict';
 
-const URL = require('./url-shim.js');
-
 /**
- * @param {NonNullable<LH.Artifacts.Manifest['value']>} manifest
+ * @param {!Manifest=} manifest
  * @return {boolean} Does the manifest have any icons?
  */
 function doExist(manifest) {
@@ -23,34 +21,19 @@ function doExist(manifest) {
 
 /**
  * @param {number} sizeRequirement
- * @param {NonNullable<LH.Artifacts.Manifest['value']>} manifest
- * @return {Array<string>} Value of satisfactory sizes (eg. ['192x192', '256x256'])
+ * @param {!Manifest} manifest
+ * @return {!Array<string>} Value of satisfactory sizes (eg. ['192x192', '256x256'])
  */
-function pngSizedAtLeast(sizeRequirement, manifest) {
+function sizeAtLeast(sizeRequirement, manifest) {
   // An icon can be provided for a single size, or for multiple sizes.
   // To handle both, we flatten all found sizes into a single array.
   const iconValues = manifest.icons.value;
-  /** @type {Array<string>} */
-  const flattenedSizes = [];
-  iconValues
-    .filter(icon => {
-      const typeHint = icon.value.type.value;
-      if (typeHint) {
-        // If a type hint is present, filter out icons that are not 'image/png'.
-        return typeHint === 'image/png';
-      }
-      // Otherwise, fall back to filtering on the icons' extension.
-      const src = icon.value.src.value;
-      return src && new URL(src).pathname.endsWith('.png');
-    })
-    .forEach(icon => {
-      // check that the icon has a size
-      if (icon.value.sizes.value) {
-        flattenedSizes.push(...icon.value.sizes.value);
-      }
-    });
+  const nestedSizes = iconValues.map(icon => icon.value.sizes.value);
+  const flattenedSizes = [].concat(...nestedSizes);
 
   return flattenedSizes
+      // First, filter out any undefined values, in case an icon was defined without a size
+      .filter(size => typeof size === 'string')
       // discard sizes that are not AAxBB (eg. "any")
       .filter(size => /\d+x\d+/.test(size))
       .filter(size => {
@@ -68,5 +51,5 @@ function pngSizedAtLeast(sizeRequirement, manifest) {
 
 module.exports = {
   doExist,
-  pngSizedAtLeast,
+  sizeAtLeast,
 };

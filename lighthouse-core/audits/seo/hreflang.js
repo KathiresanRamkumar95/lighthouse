@@ -7,7 +7,6 @@
 
 const Audit = require('../audit');
 const LinkHeader = require('http-link-header');
-const MainResource = require('../../gather/computed/main-resource.js');
 const VALID_LANGS = importValidLangs();
 const LINK_HEADER = 'link';
 const NO_LANGUAGE = 'x-default';
@@ -16,18 +15,12 @@ const NO_LANGUAGE = 'x-default';
  * Import list of valid languages from axe core without including whole axe-core package
  * This is a huge array of language codes that can be stored more efficiently if we will need to
  * shrink the bundle size.
- * @return {Array<string>}
  */
 function importValidLangs() {
-  // @ts-ignore - global switcheroo to load axe valid-langs
   const axeCache = global.axe;
-  // @ts-ignore
   global.axe = {utils: {}};
-  // @ts-ignore
   require('axe-core/lib/commons/utils/valid-langs.js');
-  // @ts-ignore
   const validLangs = global.axe.utils.validLangs();
-  // @ts-ignore
   global.axe = axeCache;
 
   return validLangs;
@@ -55,37 +48,35 @@ function headerHasValidHreflangs(headerValue) {
   const linkHeader = LinkHeader.parse(headerValue);
 
   return linkHeader.get('rel', 'alternate')
-    .every(link => !!link.hreflang && isValidHreflang(link.hreflang));
+    .every(link => link.hreflang && isValidHreflang(link.hreflang));
 }
 
 class Hreflang extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'hreflang',
-      title: 'Document has a valid `hreflang`',
-      failureTitle: 'Document doesn\'t have a valid `hreflang`',
-      description: 'hreflang links tell search engines what version of a page they should ' +
-        'list in search results for a given language or region. [Learn more]' +
-        '(https://developers.google.com/web/tools/lighthouse/audits/hreflang).',
-      requiredArtifacts: ['Hreflang', 'URL'],
+      name: 'hreflang',
+      description: 'Document has a valid `hreflang`',
+      failureDescription: 'Document doesn\'t have a valid `hreflang`',
+      helpText: 'hreflang allows crawlers to discover alternate translations of the ' +
+        'page content. [Learn more]' +
+        '(https://support.google.com/webmasters/answer/189077).',
+      requiredArtifacts: ['Hreflang'],
     };
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @param {LH.Audit.Context} context
-   * @return {Promise<LH.Audit.Product>}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
-  static audit(artifacts, context) {
-    const devtoolsLog = artifacts.devtoolsLogs[Audit.DEFAULT_PASS];
-    const URL = artifacts.URL;
+  static audit(artifacts) {
+    const devtoolsLogs = artifacts.devtoolsLogs[Audit.DEFAULT_PASS];
 
-    return MainResource.request({devtoolsLog, URL}, context)
+    return artifacts.requestMainResource(devtoolsLogs)
       .then(mainResource => {
-        /** @type {Array<{source: string|{type: 'node', snippet: string}}>} */
+        /** @type {Array<{source: string|{type: string, snippet: string}}>} */
         const invalidHreflangs = [];
 
         if (artifacts.Hreflang) {
@@ -101,7 +92,7 @@ class Hreflang extends Audit {
           });
         }
 
-        mainResource.responseHeaders && mainResource.responseHeaders
+        mainResource.responseHeaders
           .filter(h => h.name.toLowerCase() === LINK_HEADER && !headerHasValidHreflangs(h.value))
           .forEach(h => invalidHreflangs.push({source: `${h.name}: ${h.value}`}));
 

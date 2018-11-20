@@ -14,15 +14,15 @@ const ManualAudit = require('./manual-audit');
 
 class PWACrossBrowser extends ManualAudit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return Object.assign({
-      id: 'pwa-cross-browser',
-      description: 'To reach the most number of users, sites should work across ' +
+      name: 'pwa-cross-browser',
+      helpText: 'To reach the most number of users, sites should work across ' +
       'every major browser. [Learn more](https://developers.google.com/web/progressive-web-apps/checklist#site-works-cross-browser).',
-      title: 'Site works cross-browser',
-    }, super.partialMeta);
+      description: 'Site works cross-browser',
+    }, super.meta);
   }
 }
 

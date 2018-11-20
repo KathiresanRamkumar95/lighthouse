@@ -11,35 +11,22 @@
  */
 
 const AxeAudit = require('./axe-audit');
-const i18n = require('../../lib/i18n/i18n.js');
-
-const UIStrings = {
-  /** Title of an accesibility audit that evaluates if all image elements have the alt HTML attribute to describe their contents. This title is descriptive of the successful state and is shown to users when no user action is required. */
-  title: 'Image elements have `[alt]` attributes',
-  /** Title of an accesibility audit that evaluates if all image elements have the alt HTML attribute to describe their contents. This title is descriptive of the failing state and is shown to users when there is a failure that needs to be addressed. */
-  failureTitle: 'Image elements do not have `[alt]` attributes',
-  /** Description of a Lighthouse audit that tells the user *why* they should try to pass. This is displayed after a user expands the section to see more. No character length limits. 'Learn More' becomes link text to additional documentation. */
-  description: 'Informative elements should aim for short, descriptive alternate text. ' +
-      'Decorative elements can be ignored with an empty alt attribute. ' +
-      '[Learn more](https://dequeuniversity.com/rules/axe/2.2/image-alt?application=lighthouse).',
-};
-
-const str_ = i18n.createMessageInstanceIdFn(__filename, UIStrings);
 
 class ImageAlt extends AxeAudit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'image-alt',
-      title: str_(UIStrings.title),
-      failureTitle: str_(UIStrings.failureTitle),
-      description: str_(UIStrings.description),
+      name: 'image-alt',
+      description: 'Image elements have `[alt]` attributes',
+      failureDescription: 'Image elements do not have `[alt]` attributes',
+      helpText: 'Informative elements should aim for short, descriptive alternate text. ' +
+          'Decorative elements can be ignored with an empty alt attribute.' +
+          '[Learn more](https://dequeuniversity.com/rules/axe/2.2/image-alt?application=lighthouse).',
       requiredArtifacts: ['Accessibility'],
     };
   }
 }
 
 module.exports = ImageAlt;
-module.exports.UIStrings = UIStrings;

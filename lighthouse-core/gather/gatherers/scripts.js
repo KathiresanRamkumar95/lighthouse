@@ -6,35 +6,36 @@
 'use strict';
 
 const Gatherer = require('./gatherer');
-const NetworkRequest = require('../../lib/network-request');
+const WebInspector = require('../../lib/web-inspector');
 
 /**
- * @fileoverview Gets JavaScript file contents.
+ * @fileoverview Gets JavaScript file content
  */
 class Scripts extends Gatherer {
   /**
-   * @param {LH.Gatherer.PassContext} passContext
-   * @param {LH.Gatherer.LoadData} loadData
-   * @return {Promise<LH.Artifacts['Scripts']>}
+   * @param {{driver: !Driver}} options
+   * @param {{networkRecords: !Array<WebInspector.NetworkRequest}} traceData
+   * @return {!Promise<!Map<string, string>>}
    */
-  async afterPass(passContext, loadData) {
-    const driver = passContext.driver;
+  afterPass(options, traceData) {
+    const driver = options.driver;
 
-    /** @type {Object<string, string>} */
     const scriptContentMap = {};
-    const scriptRecords = loadData.networkRecords
-      .filter(record => record.resourceType === NetworkRequest.TYPES.Script);
+    const scriptRecords = traceData.networkRecords
+      .filter(record => record.resourceType() === WebInspector.resourceTypes.Script);
 
-    for (const record of scriptRecords) {
-      try {
-        const content = await driver.getRequestContent(record.requestId);
-        if (content) {
-          scriptContentMap[record.requestId] = content;
-        }
-      } catch (e) {}
-    }
-
-    return scriptContentMap;
+    return scriptRecords.reduce((promise, record) => {
+      return promise
+        .then(() => {
+          return driver.getRequestContent(record.requestId)
+            .catch(_ => null)
+            .then(content => {
+              if (!content) return;
+              scriptContentMap[record.requestId] = content;
+            });
+        })
+        .then(() => scriptContentMap);
+    }, Promise.resolve(scriptContentMap));
   }
 }
 

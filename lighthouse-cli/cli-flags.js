@@ -8,12 +8,14 @@
 /* eslint-disable max-len */
 
 const yargs = require('yargs');
+// @ts-ignore
 const pkg = require('../package.json');
+const Driver = require('../lighthouse-core/gather/driver.js');
 const printer = require('./printer');
 
 /**
  * @param {string=} manualArgv
- * @return {LH.CliFlags}
+ * @return {!LH.Flags}
  */
 function getFlags(manualArgv) {
   // @ts-ignore yargs() is incorrectly typed as not returning itself
@@ -22,7 +24,7 @@ function getFlags(manualArgv) {
       .version(() => pkg.version)
       .showHelpOnFail(false, 'Specify --help for available options')
 
-      .usage('lighthouse <url> <options>')
+      .usage('lighthouse <url>')
       .example(
           'lighthouse <url> --view', 'Opens the HTML report in a browser after the run completes')
       .example(
@@ -32,8 +34,8 @@ function getFlags(manualArgv) {
           'lighthouse <url> --output=json --output-path=./report.json --save-assets',
           'Save trace, screenshots, and named JSON report.')
       .example(
-          'lighthouse <url> --disable-device-emulation --throttling-method=provided',
-          'Disable device emulation and all throttling')
+          'lighthouse <url> --disable-device-emulation --disable-network-throttling',
+          'Disable device emulation')
       .example(
           'lighthouse <url> --chrome-flags="--window-size=412,732"',
           'Launch Chrome with a specific window size')
@@ -56,51 +58,39 @@ function getFlags(manualArgv) {
 
       .group(
         [
-          'save-assets', 'list-all-audits', 'list-trace-categories', 'print-config', 'additional-trace-categories',
-          'config-path', 'preset', 'chrome-flags', 'port', 'hostname', 'emulated-form-factor',
+          'save-assets', 'list-all-audits', 'list-trace-categories', 'additional-trace-categories',
+          'config-path', 'chrome-flags', 'perf', 'mixed-content', 'port', 'hostname',
           'max-wait-for-load', 'enable-error-reporting', 'gather-mode', 'audit-mode',
-          'only-audits', 'only-categories', 'skip-audits',
         ],
         'Configuration:')
       .describe({
-        // We don't allowlist specific locales. Why? So we can support the user who requests 'es-MX' (unsupported) and we'll fall back to 'es' (supported)
-        'locale': 'The locale/language the report should be formatted in',
         'enable-error-reporting':
             'Enables error reporting, overriding any saved preference. --no-enable-error-reporting will do the opposite. More: https://git.io/vFFTO',
         'blocked-url-patterns': 'Block any network requests to the specified URL patterns',
         'disable-storage-reset':
             'Disable clearing the browser cache and other storage APIs before a run',
-        'disable-device-emulation': 'Disable all device form factor emulation. Deprecated: use --emulated-form-factor=none instead',
-        'emulated-form-factor': 'Controls the emulated device form factor (mobile vs. desktop) if not disabled',
-        'throttling-method': 'Controls throttling method',
-        'throttling.rttMs': 'Controls simulated network RTT (TCP layer)',
-        'throttling.throughputKbps': 'Controls simulated network download throughput',
-        'throttling.requestLatencyMs': 'Controls emulated network RTT (HTTP layer)',
-        'throttling.downloadThroughputKbps': 'Controls emulated network download throughput',
-        'throttling.uploadThroughputKbps': 'Controls emulated network upload throughput',
-        'throttling.cpuSlowdownMultiplier': 'Controls simulated + emulated CPU throttling',
+        'disable-device-emulation': 'Disable Nexus 5X emulation',
+        'disable-cpu-throttling': 'Disable CPU throttling',
+        'disable-network-throttling': 'Disable network throttling',
         'gather-mode':
-            'Collect artifacts from a connected browser and save to disk. (Artifacts folder path may optionally be provided). If audit-mode is not also enabled, the run will quit early.',
-        'audit-mode': 'Process saved artifacts from disk. (Artifacts folder path may be provided, otherwise defaults to ./latest-run/)',
+            'Collect artifacts from a connected browser and save to disk. If audit-mode is not also enabled, the run will quit early.',
+        'audit-mode': 'Process saved artifacts from disk',
         'save-assets': 'Save the trace contents & screenshots to disk',
         'list-all-audits': 'Prints a list of all available audits and exits',
         'list-trace-categories': 'Prints a list of all required trace categories and exits',
         'additional-trace-categories':
             'Additional categories to capture with the trace (comma-delimited).',
         'config-path': 'The path to the config JSON.',
-        'preset': 'Use a built-in configuration.',
+        'mixed-content': 'Use the mixed-content auditing configuration.',
         'chrome-flags':
             `Custom flags to pass to Chrome (space-delimited). For a full list of flags, see http://bit.ly/chrome-flags
-            Additionally, use the CHROME_PATH environment variable to use a specific Chrome binary. Requires Chromium version 66.0 or later. If omitted, any detected Chrome Canary or Chrome stable will be used.`,
+            Additionally, use the CHROME_PATH environment variable to use a specific Chrome binary. Requires Chromium version 54.0 or later. If omitted, any detected Chrome Canary or Chrome stable will be used.`,
+        'perf': 'Use a performance-test-only configuration',
         'hostname': 'The hostname to use for the debugging protocol.',
         'port': 'The port to use for the debugging protocol. Use 0 for a random port',
         'max-wait-for-load':
             'The timeout (in milliseconds) to wait before the page is considered done loading and the run should continue. WARNING: Very high values can lead to large traces and instability',
         'extra-headers': 'Set extra HTTP Headers to pass with request',
-        'only-audits': 'Only run the specified audits',
-        'only-categories': 'Only run the specified categories',
-        'skip-audits': 'Run everything except these audits',
-        'print-config': 'Print the normalized config for the given config and options, then exit.',
       })
       // set aliases
       .alias({'gather-mode': 'G', 'audit-mode': 'A'})
@@ -111,51 +101,38 @@ function getFlags(manualArgv) {
         'output-path': `The file path to output the results. Use 'stdout' to write to stdout.
   If using JSON output, default is stdout.
   If using HTML output, default is a file in the working directory with a name based on the test URL and date.
-  If using multiple outputs, --output-path is appended with the standard extension for each output type. "reports/my-run" -> "reports/my-run.report.html", "reports/my-run.report.json", etc.
+  If using multiple outputs, --output-path is ignored.
   Example: --output-path=./lighthouse-results.html`,
         'view': 'Open HTML report in your browser',
       })
 
       // boolean values
       .boolean([
-        'disable-storage-reset', 'disable-device-emulation', 'save-assets', 'list-all-audits',
-        'list-trace-categories', 'view', 'verbose', 'quiet', 'help', 'print-config',
+        'disable-storage-reset', 'disable-device-emulation', 'disable-cpu-throttling',
+        'disable-network-throttling', 'save-assets', 'list-all-audits',
+        'list-trace-categories', 'perf', 'view', 'verbose', 'quiet', 'help',
+        'gather-mode', 'audit-mode', 'mixed-content',
       ])
       .choices('output', printer.getValidOutputOptions())
-      .choices('emulated-form-factor', ['mobile', 'desktop', 'none'])
-      .choices('throttling-method', ['devtools', 'provided', 'simulate'])
-      .choices('preset', ['full', 'perf', 'mixed-content'])
       // force as an array
-      // note MUST use camelcase versions or only the kebab-case version will be forced
-      .array('blockedUrlPatterns')
-      .array('onlyAudits')
-      .array('onlyCategories')
-      .array('skipAudits')
-      .array('output')
-      .string('extraHeaders')
+      .array('blocked-url-patterns')
+      .string('extra-headers')
 
       // default values
       .default('chrome-flags', '')
-      .default('output', ['html'])
-      .default('emulated-form-factor', 'mobile')
+      .default('disable-cpu-throttling', false)
+      .default('output', 'html')
       .default('port', 0)
       .default('hostname', 'localhost')
-      .default('enable-error-reporting', undefined) // Undefined so prompted by default
-      .check(/** @param {LH.CliFlags} argv */ (argv) => {
-        // Lighthouse doesn't need a URL if...
-        //   - We're just listing the available options.
-        //   - We're just printing the config.
-        //   - We're in auditMode (and we have artifacts already)
-        // If one of these don't apply, if no URL, stop the program and ask for one.
-        const isPrintSomethingMode = argv.listAllAudits || argv.listTraceCategories || argv.printConfig;
-        const isOnlyAuditMode = !!argv.auditMode && !argv.gatherMode;
-        if (isPrintSomethingMode || isOnlyAuditMode) {
-          return true;
-        } else if (argv._.length > 0) {
-          return true;
+      .default('max-wait-for-load', Driver.MAX_WAIT_FOR_FULLY_LOADED)
+      .check(/** @param {!LH.Flags} argv */ (argv) => {
+        // Make sure lighthouse has been passed a url, or at least one of --list-all-audits
+        // or --list-trace-categories. If not, stop the program and ask for a url
+        if (!argv.listAllAudits && !argv.listTraceCategories && argv._.length === 0) {
+          throw new Error('Please provide a url');
         }
 
-        throw new Error('Please provide a url');
+        return true;
       })
       .epilogue(
           'For more information on Lighthouse, see https://developers.google.com/web/tools/lighthouse/.')

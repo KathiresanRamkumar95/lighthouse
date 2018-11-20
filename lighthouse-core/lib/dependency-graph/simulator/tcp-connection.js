@@ -72,27 +72,6 @@ class TcpConnection {
   }
 
   /**
-   * @return {boolean}
-   */
-  isWarm() {
-    return this._warmed;
-  }
-
-  /**
-   * @return {boolean}
-   */
-  isH2() {
-    return this._h2;
-  }
-
-  /**
-   * @return {number}
-   */
-  get congestionWindow() {
-    return this._congestionWindow;
-  }
-
-  /**
    * Sets the number of excess bytes that are available to this connection on future downloads, only
    * applies to H2 connections.
    * @param {number} bytes
@@ -103,13 +82,6 @@ class TcpConnection {
   }
 
   /**
-   * @return {TcpConnection}
-   */
-  clone() {
-    return Object.assign(new TcpConnection(this._rtt, this._throughput), this);
-  }
-
-  /**
    * Simulates a network download of a particular number of bytes over an optional maximum amount of time
    * and returns information about the ending state.
    *
@@ -117,12 +89,11 @@ class TcpConnection {
    *  https://hpbn.co/transport-layer-security-tls/#tls-handshake for details.
    *
    * @param {number} bytesToDownload
-   * @param {DownloadOptions} [options]
-   * @return {DownloadResults}
+   * @param {{timeAlreadyElapsed: number, maximumTimeToElapse}=} options
+   * @return {{timeElapsed: number, roundTrips: number, bytesDownloaded: number, congestionWindow: number}}
    */
   simulateDownloadUntil(bytesToDownload, options) {
-    const {timeAlreadyElapsed = 0, maximumTimeToElapse = Infinity, dnsResolutionTime = 0} =
-      options || {};
+    const {timeAlreadyElapsed = 0, maximumTimeToElapse = Infinity} = options || {};
 
     if (this._warmed && this._h2) {
       bytesToDownload -= this._h2OverflowBytesDownloaded;
@@ -134,8 +105,6 @@ class TcpConnection {
     let handshakeAndRequest = oneWayLatency;
     if (!this._warmed) {
       handshakeAndRequest =
-        // DNS lookup
-        dnsResolutionTime +
         // SYN
         oneWayLatency +
         // SYN ACK
@@ -188,19 +157,3 @@ class TcpConnection {
 }
 
 module.exports = TcpConnection;
-
-/**
- * @typedef DownloadOptions
- * @property {number} [dnsResolutionTime]
- * @property {number} [timeAlreadyElapsed]
- * @property {number} [maximumTimeToElapse]
- */
-
-/**
- * @typedef DownloadResults
- * @property {number} roundTrips
- * @property {number} timeElapsed
- * @property {number} bytesDownloaded
- * @property {number} extraBytesDownloaded
- * @property {number} congestionWindow
- */

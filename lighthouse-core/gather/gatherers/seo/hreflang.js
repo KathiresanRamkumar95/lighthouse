@@ -9,11 +9,11 @@ const Gatherer = require('../gatherer');
 
 class Hreflang extends Gatherer {
   /**
-   * @param {LH.Gatherer.PassContext} passContext
-   * @return {Promise<LH.Artifacts['Hreflang']>}
+   * @param {{driver: !Object}} options Run options
+   * @return {!Promise<!Array<{href: string, hreflang: string}>>} Array with hreflang and href values of all link[rel=alternate] nodes found in HEAD
    */
-  afterPass(passContext) {
-    const driver = passContext.driver;
+  afterPass(options) {
+    const driver = options.driver;
 
     return driver.querySelectorAll('head link[rel="alternate" i][hreflang]')
       .then(nodes => Promise.all(nodes.map(node =>
@@ -22,10 +22,7 @@ class Hreflang extends Gatherer {
       ).then(attributeValues => attributeValues &&
         attributeValues.map(values => {
           const [href, hreflang] = values;
-          return {
-            href: href || '',
-            hreflang: hreflang || '',
-          };
+          return {href, hreflang};
         })
       );
   }

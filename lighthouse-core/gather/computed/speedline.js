@@ -5,21 +5,22 @@
  */
 'use strict';
 
-const makeComputedArtifact = require('./new-computed-artifact.js');
-const speedline = require('speedline-core');
-const LHError = require('../../lib/lh-error');
-const TraceOfTab = require('./trace-of-tab.js');
+const ComputedArtifact = require('./computed-artifact');
+const speedline = require('speedline');
+const LHError = require('../../lib/errors');
 
-class Speedline {
+class Speedline extends ComputedArtifact {
+  get name() {
+    return 'Speedline';
+  }
+
   /**
-   * @param {LH.Trace} trace
-   * @param {LH.Audit.Context} context
-   * @return {Promise<LH.Artifacts.Speedline>}
+   * @return {!Promise}
    */
-  static async compute_(trace, context) {
+  compute_(trace, computedArtifacts) {
     // speedline() may throw without a promise, so we resolve immediately
     // to get in a promise chain.
-    return TraceOfTab.request(trace, context).then(traceOfTab => {
+    return computedArtifacts.requestTraceOfTab(trace).then(traceOfTab => {
       // Use a shallow copy of traceEvents so speedline can sort as it pleases.
       // See https://github.com/GoogleChrome/lighthouse/issues/2333
       const traceEvents = trace.traceEvents.slice();
@@ -29,7 +30,7 @@ class Speedline {
       return speedline(traceEvents, {
         timeOrigin: navStart,
         fastMode: true,
-        include: 'speedIndex',
+        include: 'perceptualSpeedIndex',
       });
     }).catch(err => {
       if (/No screenshots found in trace/.test(err.message)) {
@@ -37,18 +38,8 @@ class Speedline {
       }
 
       throw err;
-    }).then(speedline => {
-      if (speedline.frames.length === 0) {
-        throw new LHError(LHError.errors.NO_SPEEDLINE_FRAMES);
-      }
-
-      if (speedline.speedIndex === 0) {
-        throw new LHError(LHError.errors.SPEEDINDEX_OF_ZERO);
-      }
-
-      return speedline;
     });
   }
 }
 
-module.exports = makeComputedArtifact(Speedline);
+module.exports = Speedline;

@@ -3,17 +3,13 @@
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
  */
+// @ts-nocheck
 'use strict';
 
 const Runner = require('./runner');
 const log = require('lighthouse-logger');
 const ChromeProtocol = require('./gather/connections/cri.js');
 const Config = require('./config/config');
-
-const URL = require('./lib/url-shim.js');
-const LHError = require('./lib/lh-error.js');
-
-/** @typedef {import('./gather/connections/connection.js')} Connection */
 
 /*
  * The relationship between these root modules:
@@ -23,52 +19,43 @@ const LHError = require('./lib/lh-error.js');
  *   runner.js - marshalls the actions that must be taken (Gather / Audit)
  *               config file is used to determine which of these actions are needed
  *
- *         lighthouse-cli \
- *                         -- core/index.js ----> runner.js ----> [Gather / Audit]
- *                clients /
+ *   lighthouse-cli \
+ *                   -- index.js  \
+ *                                 ----- runner.js ----> [Gather / Audit]
+ *           lighthouse-extension /
+ *
  */
 
 /**
- * Run Lighthouse.
- * @param {string=} url The URL to test. Optional if running in auditMode.
- * @param {LH.Flags=} flags Optional settings for the Lighthouse run. If present,
- *   they will override any settings in the config.
- * @param {LH.Config.Json=} configJSON Configuration for the Lighthouse run. If
- *   not present, the default config is used.
- * @param {Connection=} connection
- * @return {Promise<LH.RunnerResult|undefined>}
+ * @param {string} url
+ * @param {!LH.Flags} flags
+ * @param {!LH.Config|undefined} configJSON
+ * @return {!Promise<!LH.Results>}
  */
-async function lighthouse(url, flags = {}, configJSON, connection) {
-  // verify the url is valid and that protocol is allowed
-  if (url && (!URL.isValid(url) || !URL.isProtocolAllowed(url))) {
-    throw new LHError(LHError.errors.INVALID_URL);
-  }
+function lighthouse(url, flags = {}, configJSON) {
+  const startTime = Date.now();
+  return Promise.resolve().then(_ => {
+    // set logging preferences, assume quiet
+    flags.logLevel = flags.logLevel || 'error';
+    log.setLevel(flags.logLevel);
 
-  // set logging preferences, assume quiet
-  flags.logLevel = flags.logLevel || 'error';
-  log.setLevel(flags.logLevel);
+    // Use ConfigParser to generate a valid config file
+    const config = new Config(configJSON, flags.configPath);
+    const connection = new ChromeProtocol(flags.port, flags.hostname);
 
-  const config = generateConfig(configJSON, flags);
+    // kick off a lighthouse run
+    return Runner.run(connection, {url, flags, config})
+      .then((lighthouseResults = {}) => {
+        // Annotate with time to run lighthouse.
+        const endTime = Date.now();
+        lighthouseResults.timing = lighthouseResults.timing || {};
+        lighthouseResults.timing.total = endTime - startTime;
 
-  connection = connection || new ChromeProtocol(flags.port, flags.hostname);
-
-  // kick off a lighthouse run
-  return Runner.run(connection, {url, config});
+        return lighthouseResults;
+      });
+  });
 }
 
-/**
- * Generate a Lighthouse Config.
- * @param {LH.Config.Json=} configJson Configuration for the Lighthouse run. If
- *   not present, the default config is used.
- * @param {LH.Flags=} flags Optional settings for the Lighthouse run. If present,
- *   they will override any settings in the config.
- * @return {Config}
- */
-function generateConfig(configJson, flags) {
-  return new Config(configJson, flags);
-}
-
-lighthouse.generateConfig = generateConfig;
 lighthouse.getAuditList = Runner.getAuditList;
 lighthouse.traceCategories = require('./gather/driver').traceCategories;
 lighthouse.Audit = require('./audits/audit');

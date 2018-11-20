@@ -9,23 +9,23 @@ const Audit = require('../audit');
 
 class Description extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'meta-description',
-      title: 'Document has a meta description',
-      failureTitle: 'Document does not have a meta description',
-      description: 'Meta descriptions may be included in search results to concisely summarize ' +
+      name: 'meta-description',
+      description: 'Document has a meta description',
+      failureDescription: 'Document does not have a meta description',
+      helpText: 'Meta descriptions may be included in search results to concisely summarize ' +
           'page content. ' +
-          '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/description).',
+          '[Learn more](https://support.google.com/webmasters/answer/35624?hl=en#1).',
       requiredArtifacts: ['MetaDescription'],
     };
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @return {LH.Audit.Product}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
   static audit(artifacts) {
     if (artifacts.MetaDescription === null) {
@@ -37,7 +37,7 @@ class Description extends Audit {
     if (artifacts.MetaDescription.trim().length === 0) {
       return {
         rawValue: false,
-        explanation: 'Description text is empty.',
+        debugString: 'Description text is empty.',
       };
     }
 

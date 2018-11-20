@@ -6,36 +6,33 @@
 'use strict';
 
 const Audit = require('../audit');
-const MainResource = require('../../gather/computed/main-resource.js');
 const HTTP_UNSUCCESSFUL_CODE_LOW = 400;
 const HTTP_UNSUCCESSFUL_CODE_HIGH = 599;
 
 class HTTPStatusCode extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'http-status-code',
-      title: 'Page has successful HTTP status code',
-      failureTitle: 'Page has unsuccessful HTTP status code',
-      description: 'Pages with unsuccessful HTTP status codes may not be indexed properly. ' +
+      name: 'http-status-code',
+      description: 'Page has successful HTTP status code',
+      failureDescription: 'Page has unsuccessful HTTP status code',
+      helpText: 'Pages with unsuccessful HTTP status codes may not be indexed properly. ' +
       '[Learn more]' +
       '(https://developers.google.com/web/tools/lighthouse/audits/successful-http-code).',
-      requiredArtifacts: ['devtoolsLogs', 'URL'],
+      requiredArtifacts: ['devtoolsLogs'],
     };
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @param {LH.Audit.Context} context
-   * @return {Promise<LH.Audit.Product>}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
-  static audit(artifacts, context) {
-    const devtoolsLog = artifacts.devtoolsLogs[Audit.DEFAULT_PASS];
-    const URL = artifacts.URL;
+  static audit(artifacts) {
+    const devtoolsLogs = artifacts.devtoolsLogs[Audit.DEFAULT_PASS];
 
-    return MainResource.request({devtoolsLog, URL}, context)
+    return artifacts.requestMainResource(devtoolsLogs)
       .then(mainResource => {
         const statusCode = mainResource.statusCode;
 

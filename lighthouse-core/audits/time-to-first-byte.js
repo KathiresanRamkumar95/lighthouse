@@ -6,81 +6,65 @@
 'use strict';
 
 const Audit = require('./audit');
-const i18n = require('../lib/i18n/i18n.js');
-const MainResource = require('../gather/computed/main-resource.js');
-
-const UIStrings = {
-  /** Title of a diagnostic audit that provides detail on how long it took from starting a request to when the server started responding. This descriptive title is shown to users when the amount is acceptable and no user action is required. */
-  title: 'Server response times are low (TTFB)',
-  /** Title of a diagnostic audit that provides detail on how long it took from starting a request to when the server started responding. This imperative title is shown to users when there is a significant amount of execution time that could be reduced. */
-  failureTitle: 'Reduce server response times (TTFB)',
-  /** Description of a Lighthouse audit that tells the user *why* they should reduce the amount of time it takes their server to start responding to requests. This is displayed after a user expands the section to see more. No character length limits. 'Learn More' becomes link text to additional documentation. */
-  description: 'Time To First Byte identifies the time at which your server sends a response.' +
-    ' [Learn more](https://developers.google.com/web/tools/lighthouse/audits/ttfb).',
-  /** Used to summarize the total Time to First Byte duration for the primary HTML response. The `{timeInMs}` placeholder will be replaced with the time duration, shown in milliseconds (e.g. 210 ms) */
-  displayValue: `Root document took {timeInMs, number, milliseconds}\xa0ms`,
-};
-
-const str_ = i18n.createMessageInstanceIdFn(__filename, UIStrings);
+const Util = require('../report/v2/renderer/util');
 
 const TTFB_THRESHOLD = 600;
 
 class TTFBMetric extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'time-to-first-byte',
-      title: str_(UIStrings.title),
-      failureTitle: str_(UIStrings.failureTitle),
-      description: str_(UIStrings.description),
+      name: 'time-to-first-byte',
+      description: 'Keep server response times low (TTFB)',
+      informative: true,
+      helpText: 'Time To First Byte identifies the time at which your server sends a response.' +
+        ' [Learn more](https://developers.google.com/web/tools/chrome-devtools/network-performance/issues).',
       requiredArtifacts: ['devtoolsLogs', 'URL'],
     };
   }
 
-  /**
-   * @param {LH.Artifacts.NetworkRequest} record
-   */
   static caclulateTTFB(record) {
-    const timing = record.timing;
-    return timing ? timing.receiveHeadersEnd - timing.sendEnd : 0;
+    const timing = record._timing;
+
+    return timing.receiveHeadersEnd - timing.sendEnd;
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @param {LH.Audit.Context} context
-   * @return {Promise<LH.Audit.Product>}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
-  static async audit(artifacts, context) {
-    const devtoolsLog = artifacts.devtoolsLogs[Audit.DEFAULT_PASS];
-    const mainResource = await MainResource.request({devtoolsLog, URL: artifacts.URL}, context);
+  static audit(artifacts) {
+    const devtoolsLogs = artifacts.devtoolsLogs[Audit.DEFAULT_PASS];
 
-    const ttfb = TTFBMetric.caclulateTTFB(mainResource);
-    const passed = ttfb < TTFB_THRESHOLD;
-    const displayValue = str_(UIStrings.displayValue, {timeInMs: ttfb});
+    return artifacts.requestNetworkRecords(devtoolsLogs)
+      .then((networkRecords) => {
+        let debugString = '';
 
-    /** @type {LH.Result.Audit.OpportunityDetails} */
-    const details = {
-      type: 'opportunity',
-      overallSavingsMs: ttfb - TTFB_THRESHOLD,
-      headings: [],
-      items: [],
-    };
+        const finalUrl = artifacts.URL.finalUrl;
+        const finalUrlRequest = networkRecords.find(record => record._url === finalUrl);
+        const ttfb = TTFBMetric.caclulateTTFB(finalUrlRequest);
+        const passed = ttfb < TTFB_THRESHOLD;
 
-    return {
-      rawValue: ttfb,
-      score: Number(passed),
-      displayValue,
-      details,
-      extendedInfo: {
-        value: {
-          wastedMs: ttfb - TTFB_THRESHOLD,
-        },
-      },
-    };
+        if (!passed) {
+          debugString = `Root document took ${Util.formatMilliseconds(ttfb, 1)} ` +
+            'to get the first byte.';
+        }
+
+        return {
+          rawValue: ttfb,
+          score: passed,
+          displayValue: Util.formatMilliseconds(ttfb),
+          extendedInfo: {
+            value: {
+              wastedMs: ttfb - TTFB_THRESHOLD,
+            },
+          },
+          debugString,
+        };
+      });
   }
 }
 
 module.exports = TTFBMetric;
-module.exports.UIStrings = UIStrings;

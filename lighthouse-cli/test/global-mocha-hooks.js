@@ -7,7 +7,7 @@ const assert = require('assert');
  * Please keep them in sync.
  */
 
-/* eslint-env jest */
+/* eslint-env mocha */
 let currTest;
 
 // monkey-patch all assert.* methods

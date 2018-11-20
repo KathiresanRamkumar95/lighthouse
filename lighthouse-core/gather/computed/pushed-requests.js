@@ -5,22 +5,25 @@
  */
 'use strict';
 
-const makeComputedArtifact = require('./new-computed-artifact.js');
-const NetworkRecords = require('./network-records.js');
+const ComputedArtifact = require('./computed-artifact');
 
-class PushedRequests {
+class PushedRequests extends ComputedArtifact {
+  get name() {
+    return 'PushedRequests';
+  }
+
   /**
    * Return list of network requests that were pushed.
-   * @param {LH.DevtoolsLog} devtoolsLog
-   * @param {LH.Audit.Context} context
-   * @return {Promise<Array<LH.Artifacts.NetworkRequest>>}
+   * @param {!DevtoolsLog} devtoolsLog
+   * @param {!ComputedArtifacts} artifacts
+   * @return {!Promise<!Array<!WebInspector.NetworkRequest>>}
    */
-  static async compute_(devtoolsLog, context) {
-    return NetworkRecords.request(devtoolsLog, context).then(records => {
-      const pushedRecords = records.filter(r => r.timing && !!r.timing.pushStart);
+  compute_(devtoolsLog, artifacts) {
+    return artifacts.requestNetworkRecords(devtoolsLog).then(records => {
+      const pushedRecords = records.filter(r => r._timing && !!r._timing.pushStart);
       return pushedRecords;
     });
   }
 }
 
-module.exports = makeComputedArtifact(PushedRequests);
+module.exports = PushedRequests;

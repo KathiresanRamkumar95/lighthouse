@@ -6,62 +6,49 @@
 'use strict';
 
 const assert = require('assert');
-// @ts-ignore - typed where used.
 const parseCacheControl = require('parse-cache-control');
-const Audit = require('../audit');
-const NetworkRequest = require('../../lib/network-request');
+const ByteEfficiencyAudit = require('./byte-efficiency-audit');
+const formatDuration = require('../../report/v2/renderer/util.js').formatDuration;
+const WebInspector = require('../../lib/web-inspector');
 const URL = require('../../lib/url-shim');
-const linearInterpolation = require('../../lib/statistics').linearInterpolation;
-const i18n = require('../../lib/i18n/i18n.js');
-const NetworkRecords = require('../../gather/computed/network-records.js');
-
-const UIStrings = {
-  /** Title of a diagnostic audit that provides detail on the cache policy applies to the page's static assets. Cache refers to browser disk cache, which keeps old versions of network resources around for future use. This is displayed in a list of audit titles that Lighthouse generates. */
-  title: 'Uses efficient cache policy on static assets',
-  /** Title of a diagnostic audit that provides details on the any page resources that could have been served with more efficient cache policies. Cache refers to browser disk cache, which keeps old versions of network resources around for future use. This imperative title is shown to users when there is a significant amount of assets served with poor cache policies. */
-  failureTitle: 'Serve static assets with an efficient cache policy',
-  /** Description of a Lighthouse audit that tells the user *why* they need to adopt a long cache lifetime policy. This is displayed after a user expands the section to see more. No character length limits. 'Learn More' becomes link text to additional documentation. */
-  description:
-    'A long cache lifetime can speed up repeat visits to your page. ' +
-    '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/cache-policy).',
-  /** [ICU Syntax] Label for the audit identifying network resources with inefficient cache values. Clicking this will expand the audit to show the resources. */
-  displayValue: `{itemCount, plural,
-    =1 {1 resource found}
-    other {# resources found}
-    }`,
-};
-
-const str_ = i18n.createMessageInstanceIdFn(__filename, UIStrings);
 
 // Ignore assets that have very high likelihood of cache hit
 const IGNORE_THRESHOLD_IN_PERCENT = 0.925;
 
-class CacheHeaders extends Audit {
+// Scoring curve: https://www.desmos.com/calculator/zokzso8umm
+const SCORING_POINT_OF_DIMINISHING_RETURNS = 4; // 4 KB
+const SCORING_MEDIAN = 768; // 768 KB
+
+class CacheHeaders extends ByteEfficiencyAudit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'uses-long-cache-ttl',
-      title: str_(UIStrings.title),
-      failureTitle: str_(UIStrings.failureTitle),
-      description: str_(UIStrings.description),
-      scoreDisplayMode: Audit.SCORING_MODES.NUMERIC,
-      requiredArtifacts: ['devtoolsLogs', 'traces'],
+      category: 'Caching',
+      name: 'uses-long-cache-ttl',
+      description: 'Uses efficient cache policy on static assets',
+      failureDescription: 'Uses inefficient cache policy on static assets',
+      helpText:
+        'A long cache lifetime can speed up repeat visits to your page. ' +
+        '[Learn more](https://developers.google.com/web/fundamentals/performance/optimizing-content-efficiency/http-caching#cache-control).',
+      scoringMode: ByteEfficiencyAudit.SCORING_MODES.NUMERIC,
+      requiredArtifacts: ['devtoolsLogs'],
     };
   }
 
   /**
-   * @return {LH.Audit.ScoreOptions}
+   * Interpolates the y value at a point x on the line defined by (x0, y0) and (x1, y1)
+   * @param {number} x0
+   * @param {number} y0
+   * @param {number} x1
+   * @param {number} y1
+   * @param {number} x
+   * @return {number}
    */
-  static get defaultOptions() {
-    return {
-      // 50th and 75th percentiles HTTPArchive -> 50 and 75
-      // https://bigquery.cloud.google.com/table/httparchive:lighthouse.2018_04_01_mobile?pli=1
-      // see https://www.desmos.com/calculator/8meohdnjbl
-      scorePODR: 4 * 1024,
-      scoreMedian: 128 * 1024,
-    };
+  static linearInterpolation(x0, y0, x1, y1, x) {
+    const slope = (y1 - y0) / (x1 - x0);
+    return y0 + (x - x0) * slope;
   }
 
   /**
@@ -95,7 +82,7 @@ class CacheHeaders extends Audit {
     const lowerDecile = (upperDecileIndex - 1) / 10;
 
     // Approximate the real likelihood with linear interpolation
-    return linearInterpolation(
+    return CacheHeaders.linearInterpolation(
       lowerDecileValue,
       lowerDecile,
       upperDecileValue,
@@ -108,24 +95,22 @@ class CacheHeaders extends Audit {
    * Computes the user-specified cache lifetime, 0 if explicit no-cache policy is in effect, and null if not
    * user-specified. See https://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html
    *
-   * @param {Map<string, string>} headers
-   * @param {{'no-cache'?: boolean,'no-store'?: boolean, 'max-age'?: number}} cacheControl Follows the potential settings of cache-control, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control
+   * @param {!Map<string,string>} headers
+   * @param {!Object} cacheControl Follows the potential settings of cache-control, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control
    * @return {?number}
    */
   static computeCacheLifetimeInSeconds(headers, cacheControl) {
     if (cacheControl) {
       // Cache-Control takes precendence over expires
       if (cacheControl['no-cache'] || cacheControl['no-store']) return 0;
-      const maxAge = cacheControl['max-age'];
-      if (maxAge !== undefined && Number.isFinite(maxAge)) return Math.max(maxAge, 0);
+      if (Number.isFinite(cacheControl['max-age'])) return Math.max(cacheControl['max-age'], 0);
     } else if ((headers.get('pragma') || '').includes('no-cache')) {
       // The HTTP/1.0 Pragma header can disable caching if cache-control is not set, see https://tools.ietf.org/html/rfc7234#section-5.4
       return 0;
     }
 
-    const expiresHeaders = headers.get('expires');
-    if (expiresHeaders) {
-      const expires = new Date(expiresHeaders).getTime();
+    if (headers.has('expires')) {
+      const expires = new Date(headers.get('expires')).getTime();
       // Invalid expires values MUST be treated as already expired
       if (!expires) return 0;
       return Math.max(0, Math.ceil((expires - Date.now()) / 1000));
@@ -146,37 +131,35 @@ class CacheHeaders extends Audit {
    *
    * TODO: Investigate impact in HTTPArchive, experiment with this policy to see what changes.
    *
-   * @param {LH.Artifacts.NetworkRequest} record
+   * @param {!WebInspector.NetworkRequest} record
    * @return {boolean}
    */
   static isCacheableAsset(record) {
     const CACHEABLE_STATUS_CODES = new Set([200, 203, 206]);
 
-    /** @type {Set<LH.Crdp.Page.ResourceType>} */
     const STATIC_RESOURCE_TYPES = new Set([
-      NetworkRequest.TYPES.Font,
-      NetworkRequest.TYPES.Image,
-      NetworkRequest.TYPES.Media,
-      NetworkRequest.TYPES.Script,
-      NetworkRequest.TYPES.Stylesheet,
+      WebInspector.resourceTypes.Font,
+      WebInspector.resourceTypes.Image,
+      WebInspector.resourceTypes.Media,
+      WebInspector.resourceTypes.Script,
+      WebInspector.resourceTypes.Stylesheet,
     ]);
 
-    const resourceUrl = record.url;
+    const resourceUrl = record._url;
     return (
       CACHEABLE_STATUS_CODES.has(record.statusCode) &&
-      STATIC_RESOURCE_TYPES.has(record.resourceType || 'Other') &&
+      STATIC_RESOURCE_TYPES.has(record._resourceType) &&
       !resourceUrl.includes('data:')
     );
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @param {LH.Audit.Context} context
-   * @return {Promise<LH.Audit.Product>}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
-  static audit(artifacts, context) {
-    const devtoolsLogs = artifacts.devtoolsLogs[Audit.DEFAULT_PASS];
-    return NetworkRecords.request(devtoolsLogs, context).then(records => {
+  static audit(artifacts) {
+    const devtoolsLogs = artifacts.devtoolsLogs[ByteEfficiencyAudit.DEFAULT_PASS];
+    return artifacts.requestNetworkRecords(devtoolsLogs).then(records => {
       const results = [];
       let queryStringCount = 0;
       let totalWastedBytes = 0;
@@ -184,16 +167,9 @@ class CacheHeaders extends Audit {
       for (const record of records) {
         if (!CacheHeaders.isCacheableAsset(record)) continue;
 
-        /** @type {Map<string, string>} */
         const headers = new Map();
-        for (const header of record.responseHeaders || []) {
-          if (headers.has(header.name.toLowerCase())) {
-            const previousHeaderValue = headers.get(header.name.toLowerCase());
-            headers.set(header.name.toLowerCase(),
-              `${previousHeaderValue}, ${header.value}`);
-          } else {
-            headers.set(header.name.toLowerCase(), header.value);
-          }
+        for (const header of record._responseHeaders) {
+          headers.set(header.name.toLowerCase(), header.value);
         }
 
         const cacheControl = parseCacheControl(headers.get('cache-control'));
@@ -209,9 +185,11 @@ class CacheHeaders extends Audit {
         const cacheHitProbability = CacheHeaders.getCacheHitProbability(cacheLifetimeInSeconds);
         if (cacheHitProbability > IGNORE_THRESHOLD_IN_PERCENT) continue;
 
-        const url = URL.elideDataURI(record.url);
-        const totalBytes = record.transferSize || 0;
+        const url = URL.elideDataURI(record._url);
+        const totalBytes = record._transferSize;
+        const totalKb = ByteEfficiencyAudit.bytesToKbString(totalBytes);
         const wastedBytes = (1 - cacheHitProbability) * totalBytes;
+        const cacheLifetimeDisplay = formatDuration(cacheLifetimeInSeconds);
 
         totalWastedBytes += wastedBytes;
         if (url.includes('?')) queryStringCount++;
@@ -219,50 +197,51 @@ class CacheHeaders extends Audit {
         results.push({
           url,
           cacheControl,
-          cacheLifetimeMs: cacheLifetimeInSeconds * 1000,
+          cacheLifetimeInSeconds,
+          cacheLifetimeDisplay,
           cacheHitProbability,
+          totalKb,
           totalBytes,
           wastedBytes,
         });
       }
 
       results.sort(
-        (a, b) => a.cacheLifetimeMs - b.cacheLifetimeMs || b.totalBytes - a.totalBytes
+        (a, b) => a.cacheLifetimeInSeconds - b.cacheLifetimeInSeconds || b.totalBytes - a.totalBytes
       );
 
-      const score = Audit.computeLogNormalScore(
-        totalWastedBytes,
-        context.options.scorePODR,
-        context.options.scoreMedian
+      // Use the CDF of a log-normal distribution for scoring.
+      //   <= 4KB: score≈100
+      //   768KB: score=50
+      //   >= 4600KB: score≈5
+      const score = ByteEfficiencyAudit.computeLogNormalScore(
+        totalWastedBytes / 1024,
+        SCORING_POINT_OF_DIMINISHING_RETURNS,
+        SCORING_MEDIAN
       );
 
       const headings = [
-        {key: 'url', itemType: 'url', text: str_(i18n.UIStrings.columnURL)},
-        // TODO(i18n): pre-compute localized duration
-        {key: 'cacheLifetimeMs', itemType: 'ms', text: str_(i18n.UIStrings.columnCacheTTL),
-          displayUnit: 'duration'},
-        {key: 'totalBytes', itemType: 'bytes', text: str_(i18n.UIStrings.columnSize),
-          displayUnit: 'kb', granularity: 1},
+        {key: 'url', itemType: 'url', text: 'URL'},
+        {key: 'cacheLifetimeDisplay', itemType: 'text', text: 'Cache TTL'},
+        {key: 'totalKb', itemType: 'text', text: 'Size (KB)'},
       ];
 
-      const summary = {wastedBytes: totalWastedBytes};
-      const details = Audit.makeTableDetails(headings, results, summary);
+      const tableDetails = ByteEfficiencyAudit.makeTableDetails(headings, results);
 
       return {
         score,
         rawValue: totalWastedBytes,
-        displayValue: str_(UIStrings.displayValue, {itemCount: results.length}),
+        displayValue: `${results.length} asset${results.length !== 1 ? 's' : ''} found`,
         extendedInfo: {
           value: {
             results,
             queryStringCount,
           },
         },
-        details,
+        details: tableDetails,
       };
     });
   }
 }
 
 module.exports = CacheHeaders;
-module.exports.UIStrings = UIStrings;

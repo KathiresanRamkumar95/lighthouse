@@ -6,8 +6,7 @@
 'use strict';
 
 const MultiCheckAudit = require('./multi-check-audit');
-const ManifestValues = require('../gather/computed/manifest-values');
-const cssParsers = require('cssstyle/lib/parsers');
+const validColor = require('../lib/web-inspector').Color.parse;
 
 /**
  * @fileoverview
@@ -21,73 +20,52 @@ const cssParsers = require('cssstyle/lib/parsers');
 
 class ThemedOmnibox extends MultiCheckAudit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'themed-omnibox',
-      title: 'Sets an address-bar theme color',
-      failureTitle: 'Does not set an address-bar theme color',
-      description: 'The browser address bar can be themed to match your site. ' +
+      name: 'themed-omnibox',
+      description: 'Address bar matches brand colors',
+      failureDescription: 'Address bar does not match brand colors',
+      helpText: 'The browser address bar can be themed to match your site. ' +
           '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/address-bar).',
       requiredArtifacts: ['Manifest', 'ThemeColor'],
     };
   }
 
-  /**
-   * @param {string} color
-   * @return {boolean}
-   */
-  static isValidColor(color) {
-    return cssParsers.valueType(color) === cssParsers.TYPES.COLOR;
-  }
-
-  /**
-   * @param {LH.Artifacts['ThemeColor']} themeColorMeta
-   * @param {Array<string>} failures
-   */
   static assessMetaThemecolor(themeColorMeta, failures) {
     if (themeColorMeta === null) {
       failures.push('No `<meta name="theme-color">` tag found');
-    } else if (!ThemedOmnibox.isValidColor(themeColorMeta)) {
+    } else if (!validColor(themeColorMeta)) {
       failures.push('The theme-color meta tag did not contain a valid CSS color');
     }
   }
 
-  /**
-   * @param {LH.Artifacts.ManifestValues} manifestValues
-   * @param {Array<string>} failures
-   */
   static assessManifest(manifestValues, failures) {
-    if (manifestValues.isParseFailure && manifestValues.parseFailureReason) {
+    if (manifestValues.isParseFailure) {
       failures.push(manifestValues.parseFailureReason);
       return;
     }
 
     const themeColorCheck = manifestValues.allChecks.find(i => i.id === 'hasThemeColor');
-    if (themeColorCheck && !themeColorCheck.passing) {
+    if (!themeColorCheck.passing) {
       failures.push(themeColorCheck.failureText);
     }
   }
 
-  /**
-   * @param {LH.Artifacts} artifacts
-   * @param {LH.Audit.Context} context
-   * @return {Promise<{failures: Array<string>, manifestValues: LH.Artifacts.ManifestValues, themeColor: ?string}>}
-   */
-  static async audit_(artifacts, context) {
-    /** @type {Array<string>} */
+  static audit_(artifacts) {
     const failures = [];
 
-    const manifestValues = await ManifestValues.request(artifacts.Manifest, context);
-    ThemedOmnibox.assessManifest(manifestValues, failures);
-    ThemedOmnibox.assessMetaThemecolor(artifacts.ThemeColor, failures);
+    return artifacts.requestManifestValues(artifacts.Manifest).then(manifestValues => {
+      ThemedOmnibox.assessManifest(manifestValues, failures);
+      ThemedOmnibox.assessMetaThemecolor(artifacts.ThemeColor, failures);
 
-    return {
-      failures,
-      manifestValues,
-      themeColor: artifacts.ThemeColor,
-    };
+      return {
+        failures,
+        manifestValues,
+        themeColor: artifacts.ThemeColor,
+      };
+    });
   }
 }
 

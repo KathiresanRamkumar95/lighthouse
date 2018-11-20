@@ -3,52 +3,85 @@
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
  */
+// @ts-nocheck
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
 const log = require('lighthouse-logger');
 const stream = require('stream');
-const Simulator = require('./dependency-graph/simulator/simulator');
-const lanternTraceSaver = require('./lantern-trace-saver');
 const Metrics = require('./traces/pwmetrics-events');
+const TraceParser = require('./traces/trace-parser');
 const rimraf = require('rimraf');
 const mkdirp = require('mkdirp');
+
+/**
+ * Generate basic HTML page of screenshot filmstrip
+ * @param {!Array<{timestamp: number, datauri: string}>} screenshots
+ * @return {!string}
+ */
+function screenshotDump(screenshots) {
+  return `
+  <!doctype html>
+  <meta charset="utf-8">
+  <title>screenshots</title>
+  <style>
+html {
+    overflow-x: scroll;
+    overflow-y: hidden;
+    height: 100%;
+    background-image: linear-gradient(to left, #4ca1af , #c4e0e5);
+    background-attachment: fixed;
+    padding: 10px;
+}
+body {
+    white-space: nowrap;
+    background-image: linear-gradient(to left, #4ca1af , #c4e0e5);
+    width: 100%;
+    margin: 0;
+}
+img {
+    margin: 4px;
+}
+</style>
+  <body>
+    <script>
+      var shots = ${JSON.stringify(screenshots)};
+
+  shots.forEach(s => {
+    var i = document.createElement('img');
+    i.src = s.datauri;
+    i.title = s.timestamp;
+    document.body.appendChild(i);
+  });
+  </script>
+  `;
+}
 
 const artifactsFilename = 'artifacts.json';
 const traceSuffix = '.trace.json';
 const devtoolsLogSuffix = '.devtoolslog.json';
 
 /**
- * @typedef {object} PreparedAssets
- * @property {string} passName
- * @property {LH.Trace} traceData
- * @property {LH.DevtoolsLog} devtoolsLog
- */
-
-
-/**
  * Load artifacts object from files located within basePath
  * Also save the traces to their own files
  * @param {string} basePath
- * @return {Promise<LH.Artifacts>}
+ * @return {!Promise<!Artifacts>}
  */
-async function loadArtifacts(basePath) {
+// Set to ignore because testing it would imply testing fs, which isn't strictly necessary.
+/* istanbul ignore next */
+function loadArtifacts(basePath) {
   log.log('Reading artifacts from disk:', basePath);
 
-  if (!fs.existsSync(basePath)) {
-    throw new Error('No saved artifacts found at ' + basePath);
-  }
+  if (!fs.existsSync(basePath)) return Promise.reject(new Error('No saved artifacts found'));
 
   // load artifacts.json
-  /** @type {LH.Artifacts} */
-  const artifacts = JSON.parse(fs.readFileSync(path.join(basePath, artifactsFilename), 'utf8'));
-
   const filenames = fs.readdirSync(basePath);
+  const artifacts = JSON.parse(fs.readFileSync(path.join(basePath, artifactsFilename), 'utf8'));
 
   // load devtoolsLogs
   artifacts.devtoolsLogs = {};
-  filenames.filter(f => f.endsWith(devtoolsLogSuffix)).forEach(filename => {
+  filenames.filter(f => f.endsWith(devtoolsLogSuffix)).map(filename => {
     const passName = filename.replace(devtoolsLogSuffix, '');
     const devtoolsLog = JSON.parse(fs.readFileSync(path.join(basePath, filename), 'utf8'));
     artifacts.devtoolsLogs[passName] = devtoolsLog;
@@ -56,95 +89,108 @@ async function loadArtifacts(basePath) {
 
   // load traces
   artifacts.traces = {};
-  filenames.filter(f => f.endsWith(traceSuffix)).forEach(filename => {
-    const file = fs.readFileSync(path.join(basePath, filename), {encoding: 'utf-8'});
-    const trace = JSON.parse(file);
-    const passName = filename.replace(traceSuffix, '');
-    artifacts.traces[passName] = Array.isArray(trace) ? {traceEvents: trace} : trace;
+  const promises = filenames.filter(f => f.endsWith(traceSuffix)).map(filename => {
+    return new Promise(resolve => {
+      const passName = filename.replace(traceSuffix, '');
+      const readStream = fs.createReadStream(path.join(basePath, filename), {
+        encoding: 'utf-8',
+        highWaterMark: 4 * 1024 * 1024, // TODO benchmark to find the best buffer size here
+      });
+      const parser = new TraceParser();
+      readStream.on('data', chunk => parser.parseChunk(chunk));
+      readStream.on('end', _ => {
+        artifacts.traces[passName] = parser.getTrace();
+        resolve();
+      });
+    });
   });
-
-  if (Array.isArray(artifacts.Timing)) {
-    // Any Timing entries in saved artifacts will have a different timeOrigin than the auditing phase
-    // The `gather` prop is read later in generate-timing-trace and they're added to a separate track of trace events
-    artifacts.Timing.forEach(entry => (entry.gather = true));
-  }
-  return artifacts;
+  return Promise.all(promises).then(_ => artifacts);
 }
 
 /**
  * Save artifacts object mostly to single file located at basePath/artifacts.log.
  * Also save the traces & devtoolsLogs to their own files
- * @param {LH.Artifacts} artifacts
+ * @param {!Artifacts} artifacts
  * @param {string} basePath
- * @return {Promise<void>}
  */
-async function saveArtifacts(artifacts, basePath) {
-  const status = {msg: 'Saving artifacts', id: 'lh:assetSaver:saveArtifacts'};
-  log.time(status);
+// Set to ignore because testing it would imply testing fs, which isn't strictly necessary.
+/* istanbul ignore next */
+function saveArtifacts(artifacts, basePath) {
   mkdirp.sync(basePath);
   rimraf.sync(`${basePath}/*${traceSuffix}`);
   rimraf.sync(`${basePath}/${artifactsFilename}`);
 
-  const {traces, devtoolsLogs, ...restArtifacts} = artifacts;
+  // We don't want to mutate the artifacts as provided
+  artifacts = Object.assign({}, artifacts);
 
   // save traces
-  for (const [passName, trace] of Object.entries(traces)) {
-    await saveTrace(trace, `${basePath}/${passName}${traceSuffix}`);
-  }
+  const traces = artifacts.traces;
+  let promise = Promise.all(Object.keys(traces).map(passName => {
+    return saveTrace(traces[passName], `${basePath}/${passName}${traceSuffix}`);
+  }));
 
   // save devtools log
-  for (const [passName, devtoolsLog] of Object.entries(devtoolsLogs)) {
-    const log = JSON.stringify(devtoolsLog);
-    fs.writeFileSync(`${basePath}/${passName}${devtoolsLogSuffix}`, log, 'utf8');
-  }
+  const devtoolsLogs = artifacts.devtoolsLogs;
+  promise = promise.then(_ => {
+    Object.keys(devtoolsLogs).map(passName => {
+      const log = JSON.stringify(devtoolsLogs[passName]);
+      fs.writeFileSync(`${basePath}/${passName}${devtoolsLogSuffix}`, log, 'utf8');
+    });
+    delete artifacts.traces;
+    delete artifacts.devtoolsLogs;
+  });
 
   // save everything else
-  const restArtifactsString = JSON.stringify(restArtifacts, null, 2);
-  fs.writeFileSync(`${basePath}/${artifactsFilename}`, restArtifactsString, 'utf8');
-  log.log('Artifacts saved to disk in folder:', basePath);
-  log.timeEnd(status);
+  promise = promise.then(_ => {
+    fs.writeFileSync(`${basePath}/${artifactsFilename}`, JSON.stringify(artifacts, 0, 2), 'utf8');
+    log.log('Artifacts saved to disk in folder:', basePath);
+  });
+  return promise;
 }
 
 /**
  * Filter traces and extract screenshots to prepare for saving.
- * @param {LH.Artifacts} artifacts
- * @param {LH.Audit.Results} [audits]
- * @return {Promise<Array<PreparedAssets>>}
+ * @param {!Artifacts} artifacts
+ * @param {!Audits} audits
+ * @return {!Promise<!Array<{traceData: !Object, html: string}>>}
  */
-async function prepareAssets(artifacts, audits) {
+function prepareAssets(artifacts, audits) {
   const passNames = Object.keys(artifacts.traces);
-  /** @type {Array<PreparedAssets>} */
   const assets = [];
 
-  for (const passName of passNames) {
+  return passNames.reduce((chain, passName) => {
     const trace = artifacts.traces[passName];
     const devtoolsLog = artifacts.devtoolsLogs[passName];
 
-    const traceData = Object.assign({}, trace);
-    if (audits) {
-      const evts = new Metrics(traceData.traceEvents, audits).generateFakeEvents();
-      traceData.traceEvents = traceData.traceEvents.concat(evts);
-    }
+    return chain.then(_ => artifacts.requestScreenshots(trace))
+      .then(screenshots => {
+        const traceData = Object.assign({}, trace);
+        const screenshotsHTML = screenshotDump(screenshots);
 
-    assets.push({
-      passName,
-      traceData,
-      devtoolsLog,
-    });
-  }
+        if (audits) {
+          const evts = new Metrics(traceData.traceEvents, audits).generateFakeEvents();
+          traceData.traceEvents = traceData.traceEvents.concat(evts);
+        }
 
-  return assets;
+        assets.push({
+          passName,
+          traceData,
+          devtoolsLog,
+          screenshotsHTML,
+          screenshots,
+        });
+      });
+  }, Promise.resolve())
+    .then(_ => assets);
 }
 
 /**
- * Generates a JSON representation of traceData line-by-line to avoid OOM due to very large traces.
- * COMPAT: As of Node 9, JSON.parse/stringify can handle 256MB+ strings. Once we drop support for
- * Node 8, we can 'revert' PR #2593. See https://stackoverflow.com/a/47781288/89484
- * @param {LH.Trace} traceData
- * @return {IterableIterator<string>}
+ * Generates a JSON representation of traceData line-by-line to avoid OOM due to
+ * very large traces.
+ * @param {{traceEvents: !Array}} traceData
+ * @return {!Iterator<string>}
  */
 function* traceJsonGenerator(traceData) {
-  const EVENTS_PER_ITERATION = 500;
   const keys = Object.keys(traceData);
 
   yield '{\n';
@@ -156,19 +202,9 @@ function* traceJsonGenerator(traceData) {
     // Emit first item manually to avoid a trailing comma.
     const firstEvent = eventsIterator.next().value;
     yield `  ${JSON.stringify(firstEvent)}`;
-
-    let eventsRemaining = EVENTS_PER_ITERATION;
-    let eventsJSON = '';
     for (const event of eventsIterator) {
-      eventsJSON += `,\n  ${JSON.stringify(event)}`;
-      eventsRemaining--;
-      if (eventsRemaining === 0) {
-        yield eventsJSON;
-        eventsRemaining = EVENTS_PER_ITERATION;
-        eventsJSON = '';
-      }
+      yield `,\n  ${JSON.stringify(event)}`;
     }
-    yield eventsJSON;
   }
   yield '\n]';
 
@@ -186,9 +222,9 @@ function* traceJsonGenerator(traceData) {
 
 /**
  * Save a trace as JSON by streaming to disk at traceFilename.
- * @param {LH.Trace} traceData
+ * @param {{traceEvents: !Array}} traceData
  * @param {string} traceFilename
- * @return {Promise<void>}
+ * @return {!Promise<undefined>}
  */
 function saveTrace(traceData, traceFilename) {
   return new Promise((resolve, reject) => {
@@ -211,64 +247,53 @@ function saveTrace(traceData, traceFilename) {
 }
 
 /**
+ * Writes trace(s) and associated screenshot(s) to disk.
+ * @param {!Artifacts} artifacts
+ * @param {!Audits} audits
  * @param {string} pathWithBasename
- * @return {Promise<void>}
+ * @return {!Promise}
  */
-async function saveLanternDebugTraces(pathWithBasename) {
-  if (!process.env.LANTERN_DEBUG) return;
+function saveAssets(artifacts, audits, pathWithBasename) {
+  return prepareAssets(artifacts, audits).then(assets => {
+    return Promise.all(assets.map((data, index) => {
+      const devtoolsLogFilename = `${pathWithBasename}-${index}${devtoolsLogSuffix}`;
+      fs.writeFileSync(devtoolsLogFilename, JSON.stringify(data.devtoolsLog, null, 2));
+      log.log('saveAssets', 'devtools log saved to disk: ' + devtoolsLogFilename);
 
-  for (const [label, nodeTimings] of Simulator.ALL_NODE_TIMINGS) {
-    if (lanternTraceSaver.simulationNamesToIgnore.includes(label)) continue;
+      const screenshotsHTMLFilename = `${pathWithBasename}-${index}.screenshots.html`;
+      fs.writeFileSync(screenshotsHTMLFilename, data.screenshotsHTML);
+      log.log('saveAssets', 'screenshots saved to disk: ' + screenshotsHTMLFilename);
 
-    const traceFilename = `${pathWithBasename}-${label}${traceSuffix}`;
-    await saveTrace(lanternTraceSaver.convertNodeTimingsToTrace(nodeTimings), traceFilename);
-    log.log('saveAssets', `${label} lantern trace file streamed to disk: ${traceFilename}`);
-  }
-}
+      const screenshotsJSONFilename = `${pathWithBasename}-${index}.screenshots.json`;
+      fs.writeFileSync(screenshotsJSONFilename, JSON.stringify(data.screenshots, null, 2));
+      log.log('saveAssets', 'screenshots saved to disk: ' + screenshotsJSONFilename);
 
-/**
- * Writes trace(s) and associated asset(s) to disk.
- * @param {LH.Artifacts} artifacts
- * @param {LH.Audit.Results} audits
- * @param {string} pathWithBasename
- * @return {Promise<void>}
- */
-async function saveAssets(artifacts, audits, pathWithBasename) {
-  const allAssets = await prepareAssets(artifacts, audits);
-  const saveAll = allAssets.map(async (passAssets, index) => {
-    const devtoolsLogFilename = `${pathWithBasename}-${index}${devtoolsLogSuffix}`;
-    fs.writeFileSync(devtoolsLogFilename, JSON.stringify(passAssets.devtoolsLog, null, 2));
-    log.log('saveAssets', 'devtools log saved to disk: ' + devtoolsLogFilename);
-
-    const streamTraceFilename = `${pathWithBasename}-${index}${traceSuffix}`;
-    log.log('saveAssets', 'streaming trace file to disk: ' + streamTraceFilename);
-    await saveTrace(passAssets.traceData, streamTraceFilename);
-    log.log('saveAssets', 'trace file streamed to disk: ' + streamTraceFilename);
+      const streamTraceFilename = `${pathWithBasename}-${index}${traceSuffix}`;
+      log.log('saveAssets', 'streaming trace file to disk: ' + streamTraceFilename);
+      return saveTrace(data.traceData, streamTraceFilename).then(_ => {
+        log.log('saveAssets', 'trace file streamed to disk: ' + streamTraceFilename);
+      });
+    }));
   });
-
-  await Promise.all(saveAll);
-  await saveLanternDebugTraces(pathWithBasename);
 }
 
 /**
- * Log trace(s) and associated devtoolsLog(s) to console.
- * @param {LH.Artifacts} artifacts
- * @param {LH.Audit.Results} audits
- * @return {Promise<void>}
+ * Log trace(s) and associated screenshot(s) to console.
+ * @param {!Artifacts} artifacts
+ * @param {!Audits} audits
+ * @return {!Promise}
  */
-async function logAssets(artifacts, audits) {
-  const allAssets = await prepareAssets(artifacts, audits);
-  allAssets.map(passAssets => {
-    const dtlogdata = JSON.stringify(passAssets.devtoolsLog);
-    // eslint-disable-next-line no-console
-    console.log(`loggedAsset %%% devtoolslog-${passAssets.passName}.json %%% ${dtlogdata}`);
-    const traceIter = traceJsonGenerator(passAssets.traceData);
-    let traceJson = '';
-    for (const trace of traceIter) {
-      traceJson += trace;
-    }
-    // eslint-disable-next-line no-console
-    console.log(`loggedAsset %%% trace-${passAssets.passName}.json %%% ${traceJson}`);
+function logAssets(artifacts, audits) {
+  return prepareAssets(artifacts, audits).then(assets => {
+    assets.map(data => {
+      log.log(`devtoolslog-${data.passName}.json`, JSON.stringify(data.devtoolsLog));
+      const traceIter = traceJsonGenerator(data.traceData);
+      let traceJson = '';
+      for (const trace of traceIter) {
+        traceJson += trace;
+      }
+      log.log(`trace-${data.passName}.json`, traceJson);
+    });
   });
 }
 

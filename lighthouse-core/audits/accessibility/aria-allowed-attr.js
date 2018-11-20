@@ -11,35 +11,22 @@
  */
 
 const AxeAudit = require('./axe-audit');
-const i18n = require('../../lib/i18n/i18n.js');
-
-const UIStrings = {
-  /** Title of an accesibility audit that evaluates if the ARIA HTML attributes are misaligned with the aria-role HTML attribute specificed on the element, such mismatches are invalid. This title is descriptive of the successful state and is shown to users when no user action is required. */
-  title: '`[aria-*]` attributes match their roles',
-  /** Title of an accesibility audit that evaluates if the ARIA HTML attributes are misaligned with the aria-role HTML attribute specificed on the element, such mismatches are invalid. This title is descriptive of the failing state and is shown to users when there is a failure that needs to be addressed. */
-  failureTitle: '`[aria-*]` attributes do not match their roles',
-  /** Description of a Lighthouse audit that tells the user *why* they should try to pass. This is displayed after a user expands the section to see more. No character length limits. 'Learn More' becomes link text to additional documentation. */
-  description: 'Each ARIA `role` supports a specific subset of `aria-*` attributes. ' +
-      'Mismatching these invalidates the `aria-*` attributes. [Learn ' +
-      'more](https://dequeuniversity.com/rules/axe/2.2/aria-allowed-attr?application=lighthouse).',
-};
-
-const str_ = i18n.createMessageInstanceIdFn(__filename, UIStrings);
 
 class ARIAAllowedAttr extends AxeAudit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'aria-allowed-attr',
-      title: str_(UIStrings.title),
-      failureTitle: str_(UIStrings.failureTitle),
-      description: str_(UIStrings.description),
+      name: 'aria-allowed-attr',
+      description: '`[aria-*]` attributes match their roles',
+      failureDescription: '`[aria-*]` attributes do not match their roles',
+      helpText: 'Each ARIA `role` supports a specific subset of `aria-*` attributes. ' +
+          'Mismatching these invalidates the `aria-*` attributes. [Learn ' +
+          'more](https://dequeuniversity.com/rules/axe/2.2/aria-allowed-attr?application=lighthouse).',
       requiredArtifacts: ['Accessibility'],
     };
   }
 }
 
 module.exports = ARIAAllowedAttr;
-module.exports.UIStrings = UIStrings;

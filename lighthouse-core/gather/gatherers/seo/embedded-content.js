@@ -6,16 +6,16 @@
 'use strict';
 
 const Gatherer = require('../gatherer');
-const pageFunctions = require('../../../lib/page-functions.js');
+const DOMHelpers = require('../../../lib/dom-helpers.js');
 
 class EmbeddedContent extends Gatherer {
   /**
-   * @param {LH.Gatherer.PassContext} passContext
-   * @return {Promise<LH.Artifacts['EmbeddedContent']>}
+   * @param {{driver: !Driver}} options Run options
+   * @return {!Promise<Array<{tagName: string, type: ?string, src: ?string, data: ?string, code: ?string, params: Array<{name: string, value: string}>}>>} All <object>s, <embed>s and <applet>s with list of relevant attributes and child properties
    */
-  afterPass(passContext) {
+  afterPass(options) {
     const expression = `(function() {
-      ${pageFunctions.getElementsInDocumentString}; // define function on page
+      ${DOMHelpers.getElementsInDocumentFnString}; // define function on page
       const selector = 'object, embed, applet';
       const elements = getElementsInDocument(selector);
       return elements
@@ -34,7 +34,7 @@ class EmbeddedContent extends Gatherer {
         }));
     })()`;
 
-    return passContext.driver.evaluateAsync(expression);
+    return options.driver.evaluateAsync(expression);
   }
 }
 

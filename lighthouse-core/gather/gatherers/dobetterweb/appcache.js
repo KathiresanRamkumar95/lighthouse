@@ -11,11 +11,11 @@ class AppCacheManifest extends Gatherer {
   /**
    * Retrurns the value of the html element's manifest attribute or null if it
    * is not defined.
-   * @param {LH.Gatherer.PassContext} passContext
-   * @return {Promise<LH.Artifacts['AppCacheManifest']>}
+   * @param {!Object} options
+   * @return {!Promise<?string>}
    */
-  afterPass(passContext) {
-    const driver = passContext.driver;
+  afterPass(options) {
+    const driver = options.driver;
 
     return driver.querySelector('html')
       .then(node => node && node.getAttribute('manifest'));

@@ -6,69 +6,68 @@
 'use strict';
 
 const ArbitraryEqualityMap = require('../../lib/arbitrary-equality-map');
-const log = require('lighthouse-logger');
 
 class ComputedArtifact {
   /**
-   * @param {*} allComputedArtifacts
+   * @param {!ComputedArtifacts} allComputedArtifacts
    */
   constructor(allComputedArtifacts) {
-    const cache = new ArbitraryEqualityMap();
-    cache.setEqualityFn(ArbitraryEqualityMap.deepEquals);
+    /** @private {!Map} */
+    this._cache = new ArbitraryEqualityMap();
+    this._cache.setEqualityFn(ArbitraryEqualityMap.deepEquals);
 
-    /** @type {Map<FirstParamType<this['compute_']>, Promise<ReturnType<this['compute_']>>>} */
-    // @ts-ignore cache is close enough to a Map for our purposes (but e.g. no [Symbol.toStringTag])
-    this._cache = cache;
-
-    /** @type {*} */
+    /** @private {!ComputedArtifacts} */
     this._allComputedArtifacts = allComputedArtifacts;
   }
 
-  /**
-   * @return {string}
-   */
-  get name() {
-    throw new Error('name getter not implemented for computed artifact ' + this.constructor.name);
+  get requiredNumberOfArtifacts() {
+    return 1;
   }
 
   /* eslint-disable no-unused-vars */
 
   /**
-   * Override with more specific `artifact` and return type to implement a
-   * computed artifact.
+   * Override to implement a computed artifact. Can return a Promise or the
+   * computed artifact itself.
    * @param {*} artifact Input to computation.
-   * @param {*} allComputedArtifacts Access to all computed artifacts.
-   * @return {Promise<*>}
+   * @param {!ComputedArtifacts} allComputedArtifacts Access to all computed artifacts.
+   * @return {*}
    * @throws {Error}
    */
-  async compute_(artifact, allComputedArtifacts) {
+  compute_(artifact, allComputedArtifacts) {
     throw new Error('compute_() not implemented for computed artifact ' + this.name);
+  }
+
+  /**
+   * Asserts that the length of the array is the same as the number of inputs the class expects
+   * @param {!Array<*>} artifacts
+   */
+  _assertCorrectNumberOfArtifacts(artifacts) {
+    const actual = artifacts.length;
+    const expected = this.requiredNumberOfArtifacts;
+    if (actual !== expected) {
+      const className = this.constructor.name;
+      throw new Error(`${className} requires ${expected} artifacts but ${actual} were given`);
+    }
   }
 
   /* eslint-enable no-unused-vars */
 
   /**
    * Request a computed artifact, caching the result on the input artifact.
-   * Types of `requiredArtifacts` and the return value are derived from the
-   * `compute_` method on classes derived from ComputedArtifact.
-   * @param {FirstParamType<this['compute_']>} requiredArtifacts
-   * @return {Promise<ReturnType<this['compute_']>>}
+   * @param {...*} artifacts
+   * @return {!Promise<*>}
    */
-  async request(requiredArtifacts) {
-    const computed = this._cache.get(requiredArtifacts);
-    if (computed) {
-      return computed;
+  request(...artifacts) {
+    this._assertCorrectNumberOfArtifacts(artifacts);
+    if (this._cache.has(artifacts)) {
+      return Promise.resolve(this._cache.get(artifacts));
     }
 
-    const status = {msg: `Computing artifact: ${this.name}`, id: `lh:computed:${this.name}`};
-    log.time(status, 'verbose');
-    // Need to cast since `this.compute_(...)` returns the concrete return type
-    // of the base class's compute_, not the called derived class's.
-    const artifactPromise = /** @type {ReturnType<this['compute_']>} */ (
-      this.compute_(requiredArtifacts, this._allComputedArtifacts));
-    this._cache.set(requiredArtifacts, artifactPromise);
+    const artifactPromise = Promise.resolve()
+      .then(_ => this.compute_(...artifacts, this._allComputedArtifacts));
+    this._cache.set(artifacts, artifactPromise);
 
-    artifactPromise.then(() => log.timeEnd(status));
     return artifactPromise;
   }
 }

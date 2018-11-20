@@ -5,24 +5,22 @@
  */
 'use strict';
 
-/** @typedef {void|LH.GathererArtifacts[keyof LH.GathererArtifacts]} PhaseResult */
-
 /**
  * Base class for all gatherers; defines pass lifecycle methods. The artifact
  * from the gatherer is the last not-undefined value returned by a lifecycle
  * method. All methods can return the artifact value directly or return a
  * Promise that resolves to that value.
  *
- * If an Error is thrown (or a Promise that rejects on an Error),
- * the runner will treat it as an error internal to the gatherer and
+ * If an Error is thrown (or a Promise that rejects on an Error), the
+ * GatherRunner will check for a `fatal` property on the Error. If not set to
+ * `true`, the runner will treat it as an error internal to the gatherer and
  * continue execution of any remaining gatherers.
  */
 class Gatherer {
   /**
-   * @return {keyof LH.GathererArtifacts}
+   * @return {string}
    */
   get name() {
-    // @ts-ignore - assume that class name has been added to LH.GathererArtifacts.
     return this.constructor.name;
   }
 
@@ -30,28 +28,26 @@ class Gatherer {
 
   /**
    * Called before navigation to target url.
-   * @param {LH.Gatherer.PassContext} passContext
-   * @return {PhaseResult|Promise<PhaseResult>}
+   * @param {!Object} options
    */
-  beforePass(passContext) { }
+  beforePass(options) { }
 
   /**
    * Called after target page is loaded. If a trace is enabled for this pass,
    * the trace is still being recorded.
-   * @param {LH.Gatherer.PassContext} passContext
-   * @return {PhaseResult|Promise<PhaseResult>}
+   * @param {!Object} options
    */
-  pass(passContext) { }
+  pass(options) { }
 
   /**
    * Called after target page is loaded, all gatherer `pass` methods have been
    * executed, and — if generated in this pass — the trace is ended. The trace
    * and record of network activity are provided in `loadData`.
-   * @param {LH.Gatherer.PassContext} passContext
-   * @param {LH.Gatherer.LoadData} loadData
-   * @return {PhaseResult|Promise<PhaseResult>}
+   * @param {!Object} options
+   * @param {{networkRecords: !Array, trace: {traceEvents: !Array}}} loadData
+   * @return {*|!Promise<*>}
    */
-  afterPass(passContext, loadData) { }
+  afterPass(options, loadData) { }
 
   /* eslint-enable no-unused-vars */
 }

@@ -8,16 +8,17 @@
 
 /* eslint-disable no-console */
 
-const fs = require('fs');
 const path = require('path');
 const spawnSync = require('child_process').spawnSync;
 const yargs = require('yargs');
 const log = require('lighthouse-logger');
 
+const DEFAULT_CONFIG_PATH = 'pwa-config';
+const DEFAULT_EXPECTATIONS_PATH = 'pwa-expectations';
+
 const PROTOCOL_TIMEOUT_EXIT_CODE = 67;
-const PAGE_HUNG_EXIT_CODE = 68;
 const RETRIES = 3;
-const NUMERICAL_EXPECTATION_REGEXP = /^(<=?|>=?)((\d|\.)+)$/;
+const NUMERICAL_EXPECTATION_REGEXP = /^(<=?|>=?)(\d+)$/;
 
 
 /**
@@ -42,33 +43,18 @@ function resolveLocalOrCwd(payloadPath) {
  * Launch Chrome and do a full Lighthouse run.
  * @param {string} url
  * @param {string} configPath
- * @param {boolean=} isDebug
  * @return {!LighthouseResults}
  */
-function runLighthouse(url, configPath, isDebug) {
-  isDebug = isDebug || process.env.SMOKEHOUSE_DEBUG;
-
+function runLighthouse(url, configPath) {
   const command = 'node';
-  const outputPath = `smokehouse-${Math.round(Math.random() * 100000)}.report.json`;
   const args = [
     'lighthouse-cli/index.js',
     url,
     `--config-path=${configPath}`,
-    `--output-path=${outputPath}`,
     '--output=json',
     '--quiet',
     '--port=0',
   ];
-
-  if (isDebug) {
-    args.push('-GA');
-  }
-
-  if (process.env.APPVEYOR) {
-    // Appveyor is hella slow already, disable CPU throttling so we're not 16x slowdown
-    // see https://github.com/GoogleChrome/lighthouse/issues/4891
-    args.push('--throttling.cpuSlowdownMultiplier=1');
-  }
 
   // Lighthouse sometimes times out waiting to for a connection to Chrome in CI.
   // Watch for this error and retry relaunching Chrome and running Lighthouse up
@@ -88,29 +74,13 @@ function runLighthouse(url, configPath, isDebug) {
   if (runResults.status === PROTOCOL_TIMEOUT_EXIT_CODE) {
     console.error(`Lighthouse debugger connection timed out ${RETRIES} times. Giving up.`);
     process.exit(1);
-  } else if (runResults.status !== 0 && runResults.status !== PAGE_HUNG_EXIT_CODE) {
+  } else if (runResults.status !== 0) {
     console.error(`Lighthouse run failed with exit code ${runResults.status}. stderr to follow:`);
     console.error(runResults.stderr);
     process.exit(runResults.status);
   }
 
-  if (isDebug) {
-    console.log(`STDOUT: ${runResults.stdout}`);
-    console.error(`STDERR: ${runResults.stderr}`);
-  }
-
-  if (runResults.status === PAGE_HUNG_EXIT_CODE) {
-    return {requestedUrl: url, finalUrl: url, errorCode: 'PAGE_HUNG', audits: {}};
-  }
-
-  const lhr = fs.readFileSync(outputPath, 'utf8');
-  if (isDebug) {
-    console.log('LHR output available at: ', outputPath);
-  } else if (fs.existsSync(outputPath)) {
-    fs.unlinkSync(outputPath);
-  }
-
-  return JSON.parse(lhr);
+  return JSON.parse(runResults.stdout);
 }
 
 /**
@@ -127,7 +97,7 @@ function matchesExpectation(actual, expected) {
   if (typeof actual === 'number' && NUMERICAL_EXPECTATION_REGEXP.test(expected)) {
     const parts = expected.match(NUMERICAL_EXPECTATION_REGEXP);
     const operator = parts[1];
-    const number = parseFloat(parts[2]);
+    const number = parseInt(parts[2]);
     switch (operator) {
       case '>':
         return actual > number;
@@ -199,8 +169,8 @@ function findDifference(path, actual, expected) {
 
 /**
  * Collate results into comparisons of actual and expected scores on each audit.
- * @param {{finalUrl: string, audits: !Array}} actual
- * @param {{finalUrl: string, audits: !Array}} expected
+ * @param {{url: string, audits: !Array}} actual
+ * @param {{url: string, audits: !Array}} expected
  * @return {{finalUrl: !Object, audits: !Array<!Object>}}
  */
 function collateResults(actual, expected) {
@@ -226,9 +196,9 @@ function collateResults(actual, expected) {
   return {
     finalUrl: {
       category: 'final url',
-      actual: actual.finalUrl,
-      expected: expected.finalUrl,
-      equal: actual.finalUrl === expected.finalUrl,
+      actual: actual.url,
+      expected: expected.url,
+      equal: actual.url === expected.url,
     },
     audits: collatedAudits,
   };
@@ -254,9 +224,7 @@ function reportAssertion(assertion) {
   ${log.redify(log.cross)} difference at ${log.bold}${diff.path}${log.reset}
               expected: ${JSON.stringify(diff.expected)}
                  found: ${JSON.stringify(diff.actual)}
-
-          found result:
-      ${log.redify(fullActual)}
+          found result: ${log.redify(fullActual)}
 `;
       console.log(msg);
     } else {
@@ -292,7 +260,7 @@ function report(results) {
   });
 
   const plural = correctCount === 1 ? '' : 's';
-  const correctStr = `${correctCount} assertion${plural}`;
+  const correctStr = `${correctCount} audit${plural}`;
   const colorFn = correctCount === 0 ? log.redify : log.greenify;
   console.log(`  Correctly passed ${colorFn(correctStr)}\n`);
 
@@ -307,10 +275,9 @@ const cli = yargs
   .describe({
     'config-path': 'The path to the config JSON file',
     'expectations-path': 'The path to the expected audit results file',
-    'debug': 'Save the artifacts along with the output',
   })
-  .require('config-path')
-  .require('expectations-path')
+  .default('config-path', DEFAULT_CONFIG_PATH)
+  .default('expectations-path', DEFAULT_EXPECTATIONS_PATH)
   .argv;
 
 const configPath = resolveLocalOrCwd(cli['config-path']);
@@ -321,10 +288,8 @@ const expectations = require(resolveLocalOrCwd(cli['expectations-path']));
 let passingCount = 0;
 let failingCount = 0;
 expectations.forEach(expected => {
-  console.log(`Doing a run of '${expected.requestedUrl}'...`);
-  const results = runLighthouse(expected.requestedUrl, configPath, cli.debug);
-
-  console.log(`Asserting expected results match those found. (${expected.requestedUrl})`);
+  console.log(`Checking '${expected.initialUrl}'...`);
+  const results = runLighthouse(expected.initialUrl, configPath);
   const collated = collateResults(results, expected);
   const counts = report(collated);
   passingCount += counts.passed;

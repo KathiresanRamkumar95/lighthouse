@@ -9,32 +9,31 @@ const Audit = require('./audit');
 
 class WithoutJavaScript extends Audit {
   /**
-   * @return {LH.Audit.Meta}
+   * @return {!AuditMeta}
    */
   static get meta() {
     return {
-      id: 'without-javascript',
-      title: 'Contains some content when JavaScript is not available',
-      failureTitle: 'Does not provide fallback content when JavaScript is not available',
-      description: 'Your app should display some content when JavaScript is disabled, even if ' +
-          'it\'s just a warning to the user that JavaScript is required to use the app. ' +
+      name: 'without-javascript',
+      description: 'Contains some content when JavaScript is not available',
+      failureDescription: 'Does not provide fallback content when JavaScript is not available',
+      helpText: 'Your app should display some content when JavaScript is disabled, even if it\'s ' +
+          'just a warning to the user that JavaScript is required to use the app. ' +
           '[Learn more](https://developers.google.com/web/tools/lighthouse/audits/no-js).',
       requiredArtifacts: ['HTMLWithoutJavaScript'],
     };
   }
 
   /**
-   * @param {LH.Artifacts} artifacts
-   * @return {LH.Audit.Product}
+   * @param {!Artifacts} artifacts
+   * @return {!AuditResult}
    */
   static audit(artifacts) {
     const artifact = artifacts.HTMLWithoutJavaScript;
 
-    // Fail pages that have empty text and are missing a noscript tag
-    if (artifact.bodyText.trim() === '' && !artifact.hasNoScript) {
+    if (artifact.value.trim() === '') {
       return {
         rawValue: false,
-        explanation: 'The page body should render some content if its scripts are not available.',
+        debugString: 'The page body should render some content if its scripts are not available.',
       };
     }
 
